@@ -1,8 +1,6 @@
 # `FourPhonon`: An extension module of `ShengBTE` for computing four phonon anharmonicity
 
-## Authors:
-
-Four-phonon codes added by:
+## Authors and references for `FourPhonon`:
 
 - Zherui Han [zrhan@purdue.edu](mailto:zrhan@purdue.edu)
 - Xiaolong Yang [xiaolongyang1990@gmail.com](mailto:xiaolongyang1990@gmail.com)
@@ -10,21 +8,24 @@ Four-phonon codes added by:
 - Tianli Feng [Tianli.Feng2011@gmail.com](mailto:Tianli.Feng2011@gmail.com)
 - Xiulin Ruan [ruan@purdue.edu](mailto:ruan@purdue.edu)
 
-The original authors of ShengBTE:
+References: please refer to our [GitHub homepage](https://github.com/FourPhonon)
+
+1. Feng, T. & Ruan, X. Quantum mechanical prediction of four-phonon scattering rates and reduced thermal conductivity of solids. Phys Rev B **93**, 045202 (2016).
+2. Feng, T., Lindsay, L. & Ruan, X. Four-phonon scattering significantly reduces intrinsic thermal conductivity of solids. Phys Rev B **96**, 161201 (2017).
+3. Han, Z., Yang, X., Feng, T., Li, W. & Ruan, X. FourPhonon: An extension module to ShengBTE for computing four phonon anharmonicity. To be submitted to Comput Phys Commun.
+
+## The original authors of `ShengBTE` and references:
 
 - Wu Li [wu.li.phys2011@gmail.com](mailto:wu.li.phys2011@gmail.com)
 - Jesús Carrete Montaña [jcarrete@gmail.com](https://bitbucket.org/sousaw/shengbte/src/d1ecffd7d8c43f1746eae47e8ddf2cf537bdcf01/mailto:jcarrete@gmail.com)
 - Nebil A. Katcho [nebil.katcho@gmail.com](https://bitbucket.org/sousaw/shengbte/src/d1ecffd7d8c43f1746eae47e8ddf2cf537bdcf01/mailto:nebil.katcho@gmail.com)
 - Natalio Mingo [natalio.mingo@cea.fr](https://bitbucket.org/sousaw/shengbte/src/d1ecffd7d8c43f1746eae47e8ddf2cf537bdcf01/mailto:natalio.mingo@cea.fr)
 
-## Reference:
+References: please refer to the ShengBTE [link](http://www.shengbte.org/how-to-cite).
 
-1. Feng, T. & Ruan, X. Quantum mechanical prediction of four-phonon scattering rates and reduced thermal conductivity of solids. Phys Rev B **93**, 045202 (2016).
-2. Feng, T., Lindsay, L. & Ruan, X. Four-phonon scattering significantly reduces intrinsic thermal conductivity of solids. Phys Rev B **96**, 161201 (2017).
+## How to download and compile `FourPhonon`
 
-## How to compile `FourPhonon`
-
-`FourPhonon` is built under `ShengBTE`. To use it, just download the `ShengBTE` version with four phonon capabilities. The compilation of this new version is the same as previous one: after setting proper paths in `arch.make`, one can then run `make` in the `Src` subdirectory. An executable `ShengBTE` will appear in the root directory of this distribution.
+`FourPhonon` is built within `ShengBTE` and updates `ShengBTE` to a new version. The codes are hosted at GitHub, and you can download the latest distribution from this repository: [https://github.com/FourPhonon](https://github.com/FourPhonon) (you can also find this link from `ShengBTE` [website](http://www.shengbte.org/home)). The compilation of this new version is the same as the previous `ShengBTE`: after setting proper paths in `arch.make`, one can then run `make` in the `Src` subdirectory. An executable `ShengBTE` will appear in the root directory of this distribution.
 
 ## How to call `FourPhonon` function
 
