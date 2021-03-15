@@ -1,4 +1,4 @@
-# `FourPhonon`: An extension module of `ShengBTE` for computing four phonon anharmonicity
+# `FourPhonon`: An extension module to `ShengBTE` for computing four phonon anharmonicity
 
 ## Authors and references for `FourPhonon`:
 
