@@ -1,4 +1,4 @@
-# `FourPhonon`: An extension module to `ShengBTE` for computing four phonon anharmonicity
+# `FourPhonon`: An extension module to `ShengBTE` for computing four-phonon scattering rates and thermal conductivity
 
 ## Authors and references for `FourPhonon`:
 
@@ -12,7 +12,7 @@ References: please refer to our [GitHub homepage](https://github.com/FourPhonon)
 
 1. Feng, T. & Ruan, X. Quantum mechanical prediction of four-phonon scattering rates and reduced thermal conductivity of solids. Phys Rev B **93**, 045202 (2016).
 2. Feng, T., Lindsay, L. & Ruan, X. Four-phonon scattering significantly reduces intrinsic thermal conductivity of solids. Phys Rev B **96**, 161201 (2017).
-3. Han, Z., Yang, X., Feng, T., Li, W. & Ruan, X. FourPhonon: An extension module to ShengBTE for computing four phonon anharmonicity. To be submitted to Comput Phys Commun.
+3. Han, Z., Yang, X., Li, W., Feng, T. & Ruan, X. FourPhonon: An extension module to ShengBTE for computing four phonon anharmonicity. To be submitted to Comput Phys Commun.
 
 ## The original authors of `ShengBTE` and references:
 
