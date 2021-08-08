@@ -1,0 +1,27 @@
+&allocations
+        nelements=3,
+        natoms=4,
+        ngrid(:)=10 10 10
+&end
+&crystal
+        lfactor=0.1,
+        lattvec(:,1)=1.64134838396534      0.0000000000          4.71520501443946,
+        lattvec(:,2)=-0.820674191982672    1.42144939697452      4.71520501443946,
+        lattvec(:,3)=-0.820674191982672    -1.42144939697452     4.71520501443946,
+        elements="Li" "Co" "O"
+        types=1 2 3 3,
+        positions(:,1)=0.00  0.00  0.00,
+        positions(:,2)=0.500000000         0.500000000         0.500000000,
+	positions(:,3)=0.760412991         0.760412991         0.760412991,
+	positions(:,4)=0.239586994         0.239586994         0.239586994,
+        scell(:)=3 3 3
+&end
+&parameters
+	T=300
+        scalebroad=0.01
+&end
+&flags
+        nonanalytic=.TRUE.
+	convergence=.TRUE.
+	four_phonon=.TRUE.
+&end
