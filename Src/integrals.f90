@@ -86,7 +86,7 @@ contains
                      velocity(ii,jj,dir1)*velocity(ii,jj,dir2)
              end do
           end do
-          ! The coherent tunneling part
+          ! Coherence term
           do kk=jj+1,nbands
              x_coh=hbar*(omega(ii,jj)+omega(ii,kk))/2/(2.*kB*T)
              dBE_coh=(x/sinh(x))**2.
