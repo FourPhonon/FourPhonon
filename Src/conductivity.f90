@@ -47,13 +47,15 @@ contains
     ThConductivity=0.d0
     ThConductivityMode=0.d0
     ThConductivityCoh=0.d0
-    rate=0.d-50
+    rate=0.d-10
     ! Obtain scattering rates from F_n and mode velocity
     do jj=1,Nbands
        do ii=2,nptk
-          rate(ii,jj) = 3/(F_n(jj,ii,1)/velocity(ii,jj,1)+F_n(jj,ii,2)/velocity(ii,jj,2)+F_n(jj,ii,3)/velocity(ii,jj,3))
+!          print *, F_n(jj,ii,1), velocity(ii,jj,1)
+          rate(ii,jj) = 3/(abs(F_n(jj,ii,1)/velocity(ii,jj,1))+abs(F_n(jj,ii,2)/velocity(ii,jj,2))+abs(F_n(jj,ii,3)/velocity(ii,jj,3)))
        end do
     end do
+    print *, rate(1,:)
     ! Calculate thermal conductivity
     do jj=1,Nbands
        do ii=2,nptk
@@ -66,7 +68,7 @@ contains
           do kk=jj+1,Nbands ! skip diagonals
              do dir1=1,3
                 do dir2=1,3
-                   tmp_coh(dir1,dir2)=velocity_offdiag(ii,jj,kk,dir1)*velocity_offdiag(ii,jj,kk,dir1)
+                   tmp_coh(dir1,dir2)=velocity_offdiag(ii,jj,kk,dir1)*velocity_offdiag(ii,jj,kk,dir2)
                 end do
              end do
              fBE_coh1=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
@@ -134,7 +136,7 @@ contains
     ! Obtain scattering rates from F_n and mode velocity
     do jj=1,Nbands
        do ii=2,nptk
-          rate(ii,jj) = 3/(F_n(jj,ii,1)/velocity(ii,jj,1)+F_n(jj,ii,2)/velocity(ii,jj,2)+F_n(jj,ii,3)/velocity(ii,jj,3))
+          rate(ii,jj) = 3/(abs(F_n(jj,ii,1)/velocity(ii,jj,1))+abs(F_n(jj,ii,2)/velocity(ii,jj,2))+abs(F_n(jj,ii,3)/velocity(ii,jj,3)))
        end do
     end do
     do jj=1,Nbands
@@ -213,7 +215,7 @@ contains
     ! Obtain scattering rates from F_n and mode velocity
     do jj=1,Nbands
        do ii=2,nptk
-          rate(ii,jj) = 3/(F_n(jj,ii,1)/velocity(ii,jj,1)+F_n(jj,ii,2)/velocity(ii,jj,2)+F_n(jj,ii,3)/velocity(ii,jj,3))
+          rate(ii,jj) = 3/(abs(F_n(jj,ii,1)/velocity(ii,jj,1))+abs(F_n(jj,ii,2)/velocity(ii,jj,2))+abs(F_n(jj,ii,3)/velocity(ii,jj,3)))
        end do
     end do
     do jj=1,Nbands
