@@ -47,7 +47,7 @@ contains
     ThConductivity=0.d0
     ThConductivityMode=0.d0
     ThConductivityCoh=0.d0
-    rate=0.d0
+    rate=0.d-50
     ! Obtain scattering rates from F_n and mode velocity
     do jj=1,Nbands
        do ii=2,nptk
@@ -62,7 +62,7 @@ contains
                 tmp(dir1,dir2)=velocity(ii,jj,dir1)*F_n(jj,ii,dir2)
              end do
           end do
-          ! The coherent tunnling term
+          ! Coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)  
           do kk=jj+1,Nbands ! skip diagonals
              do dir1=1,3
                 do dir2=1,3
