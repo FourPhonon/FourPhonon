@@ -1002,7 +1002,7 @@ program ShengBTE
         call TConduct(energy,velocity,velocity_offdiag,F_n,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
         do ll=1,nbands
            call symmetrize_tensor(ThConductivity(ll,:,:))
-           ! Coherence term
+           ! Coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
            do mm=ll+1,nbands
               call symmetrize_tensor(ThConductivityCoh(ll,mm,:,:))
               ThConductivityCoh(mm,ll,:,:)=ThConductivityCoh(ll,mm,:,:)
@@ -1038,7 +1038,7 @@ program ShengBTE
               call TConduct(energy,velocity,velocity_offdiag,F_n,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
               do ll=1,nbands
                  call symmetrize_tensor(ThConductivity(ll,:,:))
-                 ! Coherence term
+                 ! Coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
                  do mm=ll+1,nbands
                     call symmetrize_tensor(ThConductivityCoh(ll,mm,:,:))
                     ThConductivityCoh(mm,ll,:,:)=ThConductivityCoh(ll,mm,:,:)
