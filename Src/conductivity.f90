@@ -41,12 +41,20 @@ contains
     real(kind=8),intent(out) :: ThConductivity(Nbands,3,3), ThConductivityCoh(Nbands,Nbands,3,3)
     real(kind=8),intent(out) :: ThConductivityMode(nptk,Nbands,3,3),ThConductivityCohMode(nptk,Nbands,Nbands,3,3)
 
-    real(kind=8) :: fBE,fBE_coh,tmp(3,3),tmp_coh(3,3)
+    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3),rate(nptk,Nbands)
     integer(kind=4) :: ii,jj,kk,dir1,dir2
 
     ThConductivity=0.d0
     ThConductivityMode=0.d0
     ThConductivityCoh=0.d0
+    rate=0.d0
+    ! Obtain scattering rates from F_n and mode velocity
+    do jj=1,Nbands
+       do ii=2,nptk
+          rate(ii,jj) = 3/(F_n(jj,ii,1)/velocity(ii,jj,1)+F_n(jj,ii,2)/velocity(ii,jj,2)+F_n(jj,ii,3)/velocity(ii,jj,3))
+       end do
+    end do
+    ! Calculate thermal conductivity
     do jj=1,Nbands
        do ii=2,nptk
           do dir1=1,3
@@ -61,8 +69,11 @@ contains
                    tmp_coh(dir1,dir2)=velocity_offdiag(ii,jj,kk,dir1)*velocity_offdiag(ii,jj,kk,dir1)
                 end do
              end do
-             fBE_coh=1.d0/(exp(hbar*(omega(ii,jj)+omega(ii,kk))/2/Kb/T)-1.D0)
-             ThConductivityCohMode(ii,jj,kk,:,:)=fBE_coh*(fBE_coh+1)*(omega(ii,jj)+omega(ii,kk))/2*tmp
+             fBE_coh1=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
+             fBE_coh2=1.d0/(exp(hbar*omega(ii,kk)/Kb/T)-1.D0)
+             ThConductivityCohMode(ii,jj,kk,:,:)=(fBE_coh1*(fBE_coh1+1)*omega(ii,jj)+fBE_coh2*(fBE_coh2+1)*omega(ii,kk))*tmp_coh
+             ThConductivityCohMode(ii,jj,kk,:,:)=ThConductivityCohMode(ii,jj,kk,:,:)*(omega(ii,jj)+omega(ii,kk))/2*(rate(ii,jj)+rate(ii,kk))
+             ThConductivityCohMode(ii,jj,kk,:,:)=ThConductivityCohMode(ii,jj,kk,:,:)/(4*(omega(ii,jj)-omega(ii,kk))**2+(rate(ii,jj)+rate(ii,kk))**2)
              ThConductivityCoh(jj,kk,:,:)=ThConductivityCoh(jj,kk,:,:)+ThConductivityCohMode(ii,jj,kk,:,:)
              ThConductivityCoh(kk,jj,:,:)=ThConductivityCoh(jj,kk,:,:)
           end do
@@ -74,6 +85,7 @@ contains
     ThConductivity=1e21*hbar**2*ThConductivity/(kB*T*T*V*nptk)
     ThConductivityMode=1e21*hbar**2*ThConductivityMode/(kB*T*T*V*nptk)
     ThConductivityCoh=1e21*hbar**2*ThConductivityCoh/(kB*T*T*V*nptk)
+    ThConductivityCohMode=1e21*hbar**2*ThConductivityCohMode/(kB*T*T*V*nptk)
   end subroutine TConduct
 
   ! Specialized version of the above subroutine for those cases where kappa
@@ -107,7 +119,7 @@ contains
     real(kind=8),intent(in) :: omega(nptk,Nbands),velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
     real(kind=8),intent(out) :: ticks(nticks),results(Nbands,3,3,Nticks),results_coh(Nbands,Nbands,3,3,Nticks)
 
-    real(kind=8) :: fBE,fBE_coh,tmp(3,3),tmp_coh(3,3),lambda
+    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3),lambda,lambda_coh,rate(nptk,Nbands)
     integer(kind=4) :: ii,jj,kk,mm,dir1,dir2
 
     real(kind=8) :: dnrm2
@@ -118,6 +130,13 @@ contains
 
     results=0.
     results_coh=0.
+    rate=0.
+    ! Obtain scattering rates from F_n and mode velocity
+    do jj=1,Nbands
+       do ii=2,nptk
+          rate(ii,jj) = 3/(F_n(jj,ii,1)/velocity(ii,jj,1)+F_n(jj,ii,2)/velocity(ii,jj,2)+F_n(jj,ii,3)/velocity(ii,jj,3))
+       end do
+    end do
     do jj=1,Nbands
        do ii=2,nptk
           lambda=dot_product(F_n(jj,ii,:),velocity(ii,jj,:))/(&
@@ -134,17 +153,22 @@ contains
                 results(jj,:,:,kk)=results(jj,:,:,kk)+tmp
              end if
           end do
-          ! Coherence term
+          ! Coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
           do mm=jj+1,Nbands
+             lambda_coh=dot_product(velocity_offdiag(ii,jj,mm,:),velocity_offdiag(ii,jj,mm,:))/(&
+                  ((omega(ii,jj)+omega(ii,mm))/2+1d-12)*dnrm2(3,velocity_offdiag(ii,jj,mm,:),1))
              do dir1=1,3
                 do dir2=1,3
                    tmp_coh(dir1,dir2)=velocity_offdiag(ii,jj,mm,dir1)*velocity_offdiag(ii,jj,mm,dir2)
                 end do
              end do
-             fBE_coh=1.d0/(exp(hbar*(omega(ii,jj)+omega(ii,mm))/2/Kb/T)-1.D0)
-             tmp_coh=fBE_coh*(fBE_coh+1)*(omega(ii,jj)+omega(ii,mm))/2*tmp_coh
+             fBE_coh1=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
+             fBE_coh2=1.d0/(exp(hbar*omega(ii,mm)/Kb/T)-1.D0)
+             tmp_coh=tmp_coh*(fBE_coh1*(fBE_coh1+1)*omega(ii,jj)+fBE_coh2*(fBE_coh2+1)*omega(ii,mm))
+             tmp_coh=tmp_coh*(omega(ii,jj)+omega(ii,mm))/2*(rate(ii,jj)+rate(ii,mm))
+             tmp_coh=tmp_coh/(4*(omega(ii,jj)-omega(ii,mm))**2+(rate(ii,jj)+rate(ii,mm))**2)
              do kk=1,nticks             
-                if(ticks(kk).gt.lambda) then
+                if(ticks(kk).gt.lambda_coh) then
                    results_coh(jj,mm,:,:,kk)=results_coh(jj,mm,:,:,kk)+tmp_coh
                 end if
              end do
@@ -164,7 +188,7 @@ contains
     real(kind=8),intent(in) :: omega(nptk,Nbands),velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
     real(kind=8),intent(out) :: ticks(nticks),results(Nbands,3,3,Nticks),results_coh(Nbands,Nbands,3,3,Nticks)
 
-    real(kind=8) :: fBE,fBE_coh,tmp(3,3),tmp_coh(3,3),lambda
+    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3),lambda,lambda_coh,rate(nptk,Nbands)
     integer(kind=4) :: ii,jj,kk,mm,dir1,dir2
 
     REAL(kind=8)  EMIN,EMAX
@@ -184,6 +208,14 @@ contains
     end do
 
     results=0.
+    results_coh=0.
+    rate=0.
+    ! Obtain scattering rates from F_n and mode velocity
+    do jj=1,Nbands
+       do ii=2,nptk
+          rate(ii,jj) = 3/(F_n(jj,ii,1)/velocity(ii,jj,1)+F_n(jj,ii,2)/velocity(ii,jj,2)+F_n(jj,ii,3)/velocity(ii,jj,3))
+       end do
+    end do
     do jj=1,Nbands
        do ii=2,nptk
           lambda=omega(ii,jj)
@@ -199,17 +231,21 @@ contains
                 results(jj,:,:,kk)=results(jj,:,:,kk)+tmp
              end if
           end do
-          ! Coherence term
+          ! Coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)  
           do mm=jj+1,Nbands
+             lambda_coh=(omega(ii,jj)+omega(ii,mm))/2
              do dir1=1,3
                 do dir2=1,3
                    tmp_coh(dir1,dir2)=velocity_offdiag(ii,jj,mm,dir1)*velocity_offdiag(ii,jj,mm,dir2)
                 end do
              end do
-             fBE_coh=1.d0/(exp(hbar*(omega(ii,jj)+omega(ii,mm))/2/Kb/T)-1.D0)
-             tmp_coh=fBE_coh*(fBE_coh+1)*(omega(ii,jj)+omega(ii,mm))/2*tmp_coh
+             fBE_coh1=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
+             fBE_coh2=1.d0/(exp(hbar*omega(ii,mm)/Kb/T)-1.D0)
+             tmp_coh=tmp_coh*(fBE_coh1*(fBE_coh1+1)*omega(ii,jj)+fBE_coh2*(fBE_coh2+1)*omega(ii,mm))
+             tmp_coh=tmp_coh*(omega(ii,jj)+omega(ii,mm))/2*(rate(ii,jj)+rate(ii,mm))
+             tmp_coh=tmp_coh/(4*(omega(ii,jj)-omega(ii,mm))**2+(rate(ii,jj)+rate(ii,mm))**2)
              do kk=1,nticks
-                if(ticks(kk).gt.lambda) then
+                if(ticks(kk).gt.lambda_coh) then
                    results_coh(jj,mm,:,:,kk)=results_coh(jj,mm,:,:,kk)+tmp_coh
                 end if
              end do

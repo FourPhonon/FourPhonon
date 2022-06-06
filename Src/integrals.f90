@@ -99,7 +99,7 @@ contains
              do dir1=1,3
                 do dir2=1,3
                    nruter_coh(dir1,dir2)=nruter_coh(dir1,dir2)+dBE_coh*&
-                        2*velocity_offdiag(ii,jj,kk,dir1)*velocity_offdiag(ii,jj,kk,dir2)
+                        velocity_offdiag(ii,jj,kk,dir1)*velocity_offdiag(ii,jj,kk,dir2)
                 end do
              end do
           end do
