@@ -34,28 +34,19 @@ contains
 
   ! Straightforward implementation of the thermal conductivity as an integral
   ! over the whole Brillouin zone in terms of frequencies, velocities and F_n.
-  subroutine TConduct(omega,velocity,velocity_offdiag,F_n,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
+  subroutine TConduct(omega,rate,velocity,velocity_offdiag,F_n,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
     implicit none
 
-    real(kind=8),intent(in) :: omega(nptk,Nbands),velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
+    real(kind=8),intent(in) :: omega(nptk,Nbands),rate(Nbands,nptk),velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
     real(kind=8),intent(out) :: ThConductivity(Nbands,3,3), ThConductivityCoh(Nbands,Nbands,3,3)
     real(kind=8),intent(out) :: ThConductivityMode(nptk,Nbands,3,3),ThConductivityCohMode(nptk,Nbands,Nbands,3,3)
 
-    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3),rate(nptk,Nbands)
+    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3)
     integer(kind=4) :: ii,jj,kk,dir1,dir2
 
     ThConductivity=0.d0
     ThConductivityMode=0.d0
     ThConductivityCoh=0.d0
-    rate=0.d-10
-    ! Obtain scattering rates from F_n and mode velocity
-    do jj=1,Nbands
-       do ii=2,nptk
-!          print *, F_n(jj,ii,1), velocity(ii,jj,1)
-          rate(ii,jj) = 3/(abs(F_n(jj,ii,1)/velocity(ii,jj,1))+abs(F_n(jj,ii,2)/velocity(ii,jj,2))+abs(F_n(jj,ii,3)/velocity(ii,jj,3)))
-       end do
-    end do
-    print *, rate(1,:)
     ! Calculate thermal conductivity
     do jj=1,Nbands
        do ii=2,nptk
@@ -74,8 +65,8 @@ contains
              fBE_coh1=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
              fBE_coh2=1.d0/(exp(hbar*omega(ii,kk)/Kb/T)-1.D0)
              ThConductivityCohMode(ii,jj,kk,:,:)=(fBE_coh1*(fBE_coh1+1)*omega(ii,jj)+fBE_coh2*(fBE_coh2+1)*omega(ii,kk))*tmp_coh
-             ThConductivityCohMode(ii,jj,kk,:,:)=ThConductivityCohMode(ii,jj,kk,:,:)*(omega(ii,jj)+omega(ii,kk))/2*(rate(ii,jj)+rate(ii,kk))
-             ThConductivityCohMode(ii,jj,kk,:,:)=ThConductivityCohMode(ii,jj,kk,:,:)/(4*(omega(ii,jj)-omega(ii,kk))**2+(rate(ii,jj)+rate(ii,kk))**2)
+             ThConductivityCohMode(ii,jj,kk,:,:)=ThConductivityCohMode(ii,jj,kk,:,:)*(omega(ii,jj)+omega(ii,kk))/2*(rate(jj,ii)+rate(kk,ii))
+             ThConductivityCohMode(ii,jj,kk,:,:)=ThConductivityCohMode(ii,jj,kk,:,:)/(4*(omega(ii,jj)-omega(ii,kk))**2+(rate(jj,ii)+rate(kk,ii))**2)
              ThConductivityCoh(jj,kk,:,:)=ThConductivityCoh(jj,kk,:,:)+ThConductivityCohMode(ii,jj,kk,:,:)
              ThConductivityCoh(kk,jj,:,:)=ThConductivityCoh(jj,kk,:,:)
           end do
@@ -115,13 +106,13 @@ contains
   ! "Cumulative thermal conductivity": value of kappa obtained when
   ! only phonon with mean free paths below a threshold are considered.
   ! ticks is a list of the thresholds to be employed.
-  subroutine CumulativeTConduct(omega,velocity,velocity_offdiag,F_n,ticks,results,results_coh)
+  subroutine CumulativeTConduct(omega,rate,velocity,velocity_offdiag,F_n,ticks,results,results_coh)
     implicit none
 
-    real(kind=8),intent(in) :: omega(nptk,Nbands),velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
+    real(kind=8),intent(in) :: omega(nptk,Nbands),rate(Nbands,nptk),velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
     real(kind=8),intent(out) :: ticks(nticks),results(Nbands,3,3,Nticks),results_coh(Nbands,Nbands,3,3,Nticks)
 
-    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3),lambda,lambda_coh,rate(nptk,Nbands)
+    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3),lambda,lambda_coh
     integer(kind=4) :: ii,jj,kk,mm,dir1,dir2
 
     real(kind=8) :: dnrm2
@@ -132,13 +123,6 @@ contains
 
     results=0.
     results_coh=0.
-    rate=0.
-    ! Obtain scattering rates from F_n and mode velocity
-    do jj=1,Nbands
-       do ii=2,nptk
-          rate(ii,jj) = 3/(abs(F_n(jj,ii,1)/velocity(ii,jj,1))+abs(F_n(jj,ii,2)/velocity(ii,jj,2))+abs(F_n(jj,ii,3)/velocity(ii,jj,3)))
-       end do
-    end do
     do jj=1,Nbands
        do ii=2,nptk
           lambda=dot_product(F_n(jj,ii,:),velocity(ii,jj,:))/(&
@@ -167,8 +151,8 @@ contains
              fBE_coh1=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
              fBE_coh2=1.d0/(exp(hbar*omega(ii,mm)/Kb/T)-1.D0)
              tmp_coh=tmp_coh*(fBE_coh1*(fBE_coh1+1)*omega(ii,jj)+fBE_coh2*(fBE_coh2+1)*omega(ii,mm))
-             tmp_coh=tmp_coh*(omega(ii,jj)+omega(ii,mm))/2*(rate(ii,jj)+rate(ii,mm))
-             tmp_coh=tmp_coh/(4*(omega(ii,jj)-omega(ii,mm))**2+(rate(ii,jj)+rate(ii,mm))**2)
+             tmp_coh=tmp_coh*(omega(ii,jj)+omega(ii,mm))/2*(rate(jj,ii)+rate(mm,ii))
+             tmp_coh=tmp_coh/(4*(omega(ii,jj)-omega(ii,mm))**2+(rate(jj,ii)+rate(mm,ii))**2)
              do kk=1,nticks             
                 if(ticks(kk).gt.lambda_coh) then
                    results_coh(jj,mm,:,:,kk)=results_coh(jj,mm,:,:,kk)+tmp_coh
@@ -184,13 +168,13 @@ contains
   ! "Cumulative thermal conductivity vs angular frequency": value of kappa obtained when
   ! only frequencies below a threshold are considered.
   ! ticks is a list of the thresholds to be employed.
-  subroutine CumulativeTConductOmega(omega,velocity,velocity_offdiag,F_n,ticks,results,results_coh)
+  subroutine CumulativeTConductOmega(omega,rate,velocity,velocity_offdiag,F_n,ticks,results,results_coh)
     implicit none
 
-    real(kind=8),intent(in) :: omega(nptk,Nbands),velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
+    real(kind=8),intent(in) :: omega(nptk,Nbands),rate(Nbands,nptk),velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
     real(kind=8),intent(out) :: ticks(nticks),results(Nbands,3,3,Nticks),results_coh(Nbands,Nbands,3,3,Nticks)
 
-    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3),lambda,lambda_coh,rate(nptk,Nbands)
+    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3),lambda,lambda_coh
     integer(kind=4) :: ii,jj,kk,mm,dir1,dir2
 
     REAL(kind=8)  EMIN,EMAX
@@ -211,13 +195,6 @@ contains
 
     results=0.
     results_coh=0.
-    rate=0.
-    ! Obtain scattering rates from F_n and mode velocity
-    do jj=1,Nbands
-       do ii=2,nptk
-          rate(ii,jj) = 3/(abs(F_n(jj,ii,1)/velocity(ii,jj,1))+abs(F_n(jj,ii,2)/velocity(ii,jj,2))+abs(F_n(jj,ii,3)/velocity(ii,jj,3)))
-       end do
-    end do
     do jj=1,Nbands
        do ii=2,nptk
           lambda=omega(ii,jj)
@@ -244,8 +221,8 @@ contains
              fBE_coh1=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
              fBE_coh2=1.d0/(exp(hbar*omega(ii,mm)/Kb/T)-1.D0)
              tmp_coh=tmp_coh*(fBE_coh1*(fBE_coh1+1)*omega(ii,jj)+fBE_coh2*(fBE_coh2+1)*omega(ii,mm))
-             tmp_coh=tmp_coh*(omega(ii,jj)+omega(ii,mm))/2*(rate(ii,jj)+rate(ii,mm))
-             tmp_coh=tmp_coh/(4*(omega(ii,jj)-omega(ii,mm))**2+(rate(ii,jj)+rate(ii,mm))**2)
+             tmp_coh=tmp_coh*(omega(ii,jj)+omega(ii,mm))/2*(rate(jj,ii)+rate(mm,ii))
+             tmp_coh=tmp_coh/(4*(omega(ii,jj)-omega(ii,mm))**2+(rate(jj,ii)+rate(mm,ii))**2)
              do kk=1,nticks
                 if(ticks(kk).gt.lambda_coh) then
                    results_coh(jj,mm,:,:,kk)=results_coh(jj,mm,:,:,kk)+tmp_coh

@@ -999,7 +999,7 @@ program ShengBTE
         open(2004,file="BTE.kappa_coh",status="replace")
         open(2005,file="BTE.kappa_coh_tensor",status="replace")
         open(2006,file="BTE.kappa_coh_scalar",status="replace")
-        call TConduct(energy,velocity,velocity_offdiag,F_n,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
+        call TConduct(energy,rate_scatt,velocity,velocity_offdiag,F_n,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
         do ll=1,nbands
            call symmetrize_tensor(ThConductivity(ll,:,:))
            ! Coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
@@ -1035,7 +1035,7 @@ program ShengBTE
               do ll=1,nptk
                  F_n(:,ll,:)=transpose(matmul(symmetrizers(:,:,ll),transpose(F_n(:,ll,:))))
               end do
-              call TConduct(energy,velocity,velocity_offdiag,F_n,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
+              call TConduct(energy,rate_scatt,velocity,velocity_offdiag,F_n,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
               do ll=1,nbands
                  call symmetrize_tensor(ThConductivity(ll,:,:))
                  ! Coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
@@ -1130,7 +1130,7 @@ program ShengBTE
 
         allocate(ticks(nticks),cumulative_kappa(nbands,3,3,nticks),cumulative_kappa_coh(nbands,nbands,3,3,nticks))
         ! Cumulative thermal conductivity.
-        call CumulativeTConduct(energy,velocity,velocity_offdiag,F_n,ticks,cumulative_kappa,cumulative_kappa_coh)
+        call CumulativeTConduct(energy,rate_scatt,velocity,velocity_offdiag,F_n,ticks,cumulative_kappa,cumulative_kappa_coh)
         do ii=1,nticks
            do ll=1,nbands
               call symmetrize_tensor(cumulative_kappa(ll,:,:,ii))
@@ -1156,7 +1156,7 @@ program ShengBTE
 
         ! Cumulative thermal conductivity vs angular frequency.
         allocate(ticks(nticks),cumulative_kappa(nbands,3,3,nticks),cumulative_kappa_coh(nbands,nbands,3,3,nticks))
-        call CumulativeTConductOmega(energy,velocity,velocity_offdiag,F_n,ticks,cumulative_kappa,cumulative_kappa_coh)
+        call CumulativeTConductOmega(energy,rate_scatt,velocity,velocity_offdiag,F_n,ticks,cumulative_kappa,cumulative_kappa_coh)
         do ii=1,nticks
            do ll=1,nbands
               call symmetrize_tensor(cumulative_kappa(ll,:,:,ii))
