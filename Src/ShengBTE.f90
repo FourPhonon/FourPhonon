@@ -1052,7 +1052,7 @@ program ShengBTE
               flush(2003)
               write(2004,"(I9,"//trim(adjustl(aux))//"E20.10)") ii,ThConductivityCoh
               flush(2004)
-              write(2005,"(I9,9E20.10)") ii,sum(sum(ThConductivity,dim=1),dim=1)
+              write(2005,"(I9,9E20.10)") ii,sum(sum(ThConductivityCoh,dim=1),dim=1)
               flush(2005)
               write(2006,"(I9,E20.10)") ii,&
                    sum(sum(sum(ThConductivityCoh,dim=1),dim=1),reshape((/((i==j,i=1,3),j=1,3)/),(/3,3/)))/3.

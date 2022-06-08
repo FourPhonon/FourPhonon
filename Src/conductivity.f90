@@ -60,7 +60,7 @@ contains
           end do
        end do
     end do
-
+    print *, rate(:,1)
 
 
     ! Calculate thermal conductivity
