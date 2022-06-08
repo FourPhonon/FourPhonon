@@ -160,7 +160,6 @@ program ShengBTE
      end do
   end do
 
-
   do ii=1,Ngrid(1)
      do jj=1,Ngrid(2)
         do kk=1,Ngrid(3)
@@ -999,7 +998,7 @@ program ShengBTE
         open(2004,file="BTE.kappa_coh",status="replace")
         open(2005,file="BTE.kappa_coh_tensor",status="replace")
         open(2006,file="BTE.kappa_coh_scalar",status="replace")
-        call TConduct(energy,rate_scatt,velocity,velocity_offdiag,F_n,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
+        call TConduct(energy,rate_scatt,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
         do ll=1,nbands
            call symmetrize_tensor(ThConductivity(ll,:,:))
            ! Coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
@@ -1035,7 +1034,7 @@ program ShengBTE
               do ll=1,nptk
                  F_n(:,ll,:)=transpose(matmul(symmetrizers(:,:,ll),transpose(F_n(:,ll,:))))
               end do
-              call TConduct(energy,rate_scatt,velocity,velocity_offdiag,F_n,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
+              call TConduct(energy,rate_scatt,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
               do ll=1,nbands
                  call symmetrize_tensor(ThConductivity(ll,:,:))
                  ! Coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)

@@ -34,19 +34,35 @@ contains
 
   ! Straightforward implementation of the thermal conductivity as an integral
   ! over the whole Brillouin zone in terms of frequencies, velocities and F_n.
-  subroutine TConduct(omega,rate,velocity,velocity_offdiag,F_n,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
+  subroutine TConduct(omega,rate_ibz,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
     implicit none
 
-    real(kind=8),intent(in) :: omega(nptk,Nbands),rate(Nbands,nptk),velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
+    integer(kind=4),intent(in) :: Nlist,Nequi(nptk),ALLEquiList(Nsymm_rot,nptk)
+    real(kind=8),intent(in) :: omega(nptk,Nbands),rate_ibz(Nbands,Nlist)
+    real(kind=8),intent(in) :: velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
     real(kind=8),intent(out) :: ThConductivity(Nbands,3,3), ThConductivityCoh(Nbands,Nbands,3,3)
     real(kind=8),intent(out) :: ThConductivityMode(nptk,Nbands,3,3),ThConductivityCohMode(nptk,Nbands,Nbands,3,3)
 
-    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3)
-    integer(kind=4) :: ii,jj,kk,dir1,dir2
+    integer(kind=4) :: ii,jj,kk,ll,dir1,dir2
+    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3),rate(Nbands,nptk)
+
 
     ThConductivity=0.d0
     ThConductivityMode=0.d0
     ThConductivityCoh=0.d0
+
+    
+    ! Expand the scattering rate array into the full BZ
+    do ll=1,Nlist
+       do ii=1,Nbands
+          do kk=1,Nequi(ll)
+             rate(ii,ALLEquiList(kk,ll))=rate_ibz(ii,ll)
+          end do
+       end do
+    end do
+
+
+
     ! Calculate thermal conductivity
     do jj=1,Nbands
        do ii=2,nptk
