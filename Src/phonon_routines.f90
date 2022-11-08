@@ -129,7 +129,7 @@ contains
     real(kind=8),allocatable :: fc_diel(:,:,:,:,:,:,:)
     real(kind=8),allocatable :: fc_total(:,:,:,:,:,:,:)
 
-    integer(kind=4) :: i,j,ip,ik,neq
+    integer(kind=4) :: i,j,ip,jp,ik,neq
     integer(kind=4) :: ix1,iy1,iz1,iatom1,ix2,iy2,iz2,iatom2
     real(kind=8) :: tmp1,tmp2,tmp3,dmin,Rnorm
     real(kind=8) :: rcell(3),r(3),rl(3),rr(3,27),qr(27)
@@ -331,13 +331,13 @@ contains
                   matmul(ddyn_total(:,:,ip),dyn_total(:,i))))
           end do
           ! OFF-DIAGONALS - Junsoo Park
-          do j=i+1,nbands
-             do ip=1,3
-                velocities_offdiag(ik,i,j,ip)=real(dot_product(dyn_total(:,i),&
-                     matmul(ddyn_total(:,:,ip),dyn_total(:,j))))
+          do j=1,nbands
+             do jp=1,3
+                velocities_offdiag(ik,i,j,jp)=real(dot_product(dyn_total(:,i),&
+                     matmul(ddyn_total(:,:,jp),dyn_total(:,j))))
              end do
-             velocities_offdiag(ik,i,j,:)=velocities_offdiag(ik,i,j,:)/(2.*((omegas(ik,i)*omegas(ik,j))/2))
-             velocities_offdiag(ik,j,i,:)=velocities_offdiag(ik,i,j,:)
+             velocities_offdiag(ik,i,j,:)=velocities_offdiag(ik,i,j,:)/(omegas(ik,i)+omegas(ik,j))
+!             velocities_offdiag(ik,j,i,:)=velocities_offdiag(ik,i,j,:)
           end do
           velocities(ik,i,:)=velocities(ik,i,:)/(2.*omegas(ik,i))
        end do
@@ -359,7 +359,7 @@ contains
     real(kind=8),parameter :: bohr2nm=0.052917721092,toTHz=20670.687,&
          massfactor=1.8218779*6.022e-4
 
-    integer(kind=4) :: ip,ir,nreq,ntype,nat,ibrav,qscell(3)
+    integer(kind=4) :: ip,jp,ir,nreq,ntype,nat,ibrav,qscell(3)
     integer(kind=4) :: i,j,ipol,jpol,iat,jat,idim,jdim,t1,t2,t3,m1,m2,m3,ik
     integer(kind=4) :: ndim,nk,nwork,ncell_g(3)
     integer(kind=8),allocatable :: tipo(:)
@@ -686,13 +686,13 @@ contains
                   matmul(ddyn(:,:,j),dyn(:,i))))
           end do
           ! OFF-DIAGONALS - Junsoo Park
-          do j=i+1,nbands
-             do ip=1,3
-                velocities_offdiag(ik,i,j,ip)=real(dot_product(dyn(:,i),&
-                     matmul(ddyn(:,:,ip),dyn(:,j))))
+          do j=1,nbands
+             do jp=1,3
+                velocities_offdiag(ik,i,j,jp)=real(dot_product(dyn(:,i),&
+                     matmul(ddyn(:,:,jp),dyn(:,j))))
              end do
-             velocities_offdiag(ik,i,j,:)=velocities_offdiag(ik,i,j,:)/(2.*sqrt(omegas(ik,i)*omegas(ik,j)))
-             velocities_offdiag(ik,j,i,:)=velocities_offdiag(ik,i,j,:)
+             velocities_offdiag(ik,i,j,:)=velocities_offdiag(ik,i,j,:)/(omegas(ik,i)*omegas(ik,j))
+!             velocities_offdiag(ik,j,i,:)=velocities_offdiag(ik,i,j,:)
           end do
           velocities(ik,i,:)=velocities(ik,i,:)/(2.*omegas(ik,i))
        end do

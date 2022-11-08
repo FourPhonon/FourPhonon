@@ -34,34 +34,34 @@ contains
 
   ! Straightforward implementation of the thermal conductivity as an integral
   ! over the whole Brillouin zone in terms of frequencies, velocities and F_n.
-  subroutine TConduct(omega,rate_ibz,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
+  subroutine TConduct(omega,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
     implicit none
 
     integer(kind=4),intent(in) :: Nlist,Nequi(nptk),ALLEquiList(Nsymm_rot,nptk)
-    real(kind=8),intent(in) :: omega(nptk,Nbands),rate_ibz(Nbands,Nlist)
+    real(kind=8),intent(in) :: omega(nptk,Nbands)!,rate_ibz(Nbands,Nlist)
     real(kind=8),intent(in) :: velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
     real(kind=8),intent(out) :: ThConductivity(Nbands,3,3), ThConductivityCoh(Nbands,Nbands,3,3)
     real(kind=8),intent(out) :: ThConductivityMode(nptk,Nbands,3,3),ThConductivityCohMode(nptk,Nbands,Nbands,3,3)
 
     integer(kind=4) :: ii,jj,kk,ll,dir1,dir2
-    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3),rate(Nbands,nptk)
+    real(kind=8) :: fBE,fBE1,fBE2,tmp(3,3),tmp_coh(3,3),rate(Nbands,nptk)
 
 
     ThConductivity=0.d0
     ThConductivityMode=0.d0
     ThConductivityCoh=0.d0
+    rate=0.d-5
 
-    
-    ! Expand the scattering rate array into the full BZ
-    do ll=1,Nlist
-       do ii=1,Nbands
-          do kk=1,Nequi(ll)
-             rate(ii,ALLEquiList(kk,ll))=rate_ibz(ii,ll)
-          end do
+    ! Scattering rate
+    do ii=1,nptk
+       do jj=1,Nbands
+          if (norm2(F_n(jj,ii,:)).ne.0 .and. omega(ii,jj).gt.0) then
+             rate(jj,ii)=norm2(velocity(ii,jj,:))*omega(ii,jj)/norm2(F_n(jj,ii,:)) ! F_n has omega factor
+          end if
+!          print *, "RATE:", jj,ii, rate(jj,ii)
        end do
     end do
-    print *, rate(:,1)
-
+    print *, "RATE Avg. over qpoint:", sum(rate,dim=2)/nptk
 
     ! Calculate thermal conductivity
     do jj=1,Nbands
@@ -71,20 +71,24 @@ contains
                 tmp(dir1,dir2)=velocity(ii,jj,dir1)*F_n(jj,ii,dir2)
              end do
           end do
-          ! Coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)  
-          do kk=jj+1,Nbands ! skip diagonals
+          ! With coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)  
+          do kk=1,Nbands
+             if (jj.eq.kk) then ! jj.ne.kk to test off-diagonal formulation = diagonal formulation of normal BTE
+                cycle
+             end if
              do dir1=1,3
                 do dir2=1,3
-                   tmp_coh(dir1,dir2)=velocity_offdiag(ii,jj,kk,dir1)*velocity_offdiag(ii,jj,kk,dir2)
+                   tmp_coh(dir1,dir2)=velocity_offdiag(ii,jj,kk,dir1)*velocity_offdiag(ii,kk,jj,dir2)
                 end do
              end do
-             fBE_coh1=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
-             fBE_coh2=1.d0/(exp(hbar*omega(ii,kk)/Kb/T)-1.D0)
-             ThConductivityCohMode(ii,jj,kk,:,:)=(fBE_coh1*(fBE_coh1+1)*omega(ii,jj)+fBE_coh2*(fBE_coh2+1)*omega(ii,kk))*tmp_coh
+             fBE1=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
+             fBE2=1.d0/(exp(hbar*omega(ii,kk)/Kb/T)-1.D0)
+             ThConductivityCohMode(ii,jj,kk,:,:)=(fBE1*(fBE1+1)*omega(ii,jj)+fBE2*(fBE2+1)*omega(ii,kk))*tmp_coh
              ThConductivityCohMode(ii,jj,kk,:,:)=ThConductivityCohMode(ii,jj,kk,:,:)*(omega(ii,jj)+omega(ii,kk))/2*(rate(jj,ii)+rate(kk,ii))
              ThConductivityCohMode(ii,jj,kk,:,:)=ThConductivityCohMode(ii,jj,kk,:,:)/(4*(omega(ii,jj)-omega(ii,kk))**2+(rate(jj,ii)+rate(kk,ii))**2)
              ThConductivityCoh(jj,kk,:,:)=ThConductivityCoh(jj,kk,:,:)+ThConductivityCohMode(ii,jj,kk,:,:)
-             ThConductivityCoh(kk,jj,:,:)=ThConductivityCoh(jj,kk,:,:)
+!             ThConductivityCohMode(ii,kk,jj,:,:)=ThConductivityCohMode(ii,jj,kk,:,:)
+!             ThConductivityCoh(kk,jj,:,:)=ThConductivityCoh(jj,kk,:,:)
           end do
           fBE=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
           ThConductivityMode(ii,jj,:,:)=fBE*(fBE+1)*omega(ii,jj)*tmp
@@ -128,7 +132,7 @@ contains
     real(kind=8),intent(in) :: omega(nptk,Nbands),rate(Nbands,nptk),velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
     real(kind=8),intent(out) :: ticks(nticks),results(Nbands,3,3,Nticks),results_coh(Nbands,Nbands,3,3,Nticks)
 
-    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3),lambda,lambda_coh
+    real(kind=8) :: fBE,fBE1,fBE2,tmp(3,3),tmp_coh(3,3),lambda,lambda_coh
     integer(kind=4) :: ii,jj,kk,mm,dir1,dir2
 
     real(kind=8) :: dnrm2
@@ -155,18 +159,18 @@ contains
                 results(jj,:,:,kk)=results(jj,:,:,kk)+tmp
              end if
           end do
-          ! Coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
-          do mm=jj+1,Nbands
-             lambda_coh=dot_product(velocity_offdiag(ii,jj,mm,:),velocity_offdiag(ii,jj,mm,:))/(&
+          ! With coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
+          do mm=1,Nbands
+             lambda_coh=dot_product(velocity_offdiag(ii,jj,mm,:),velocity_offdiag(ii,mm,jj,:))/(&
                   ((omega(ii,jj)+omega(ii,mm))/2+1d-12)*dnrm2(3,velocity_offdiag(ii,jj,mm,:),1))
              do dir1=1,3
                 do dir2=1,3
-                   tmp_coh(dir1,dir2)=velocity_offdiag(ii,jj,mm,dir1)*velocity_offdiag(ii,jj,mm,dir2)
+                   tmp_coh(dir1,dir2)=velocity_offdiag(ii,jj,mm,dir1)*velocity_offdiag(ii,mm,jj,dir2)
                 end do
              end do
-             fBE_coh1=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
-             fBE_coh2=1.d0/(exp(hbar*omega(ii,mm)/Kb/T)-1.D0)
-             tmp_coh=tmp_coh*(fBE_coh1*(fBE_coh1+1)*omega(ii,jj)+fBE_coh2*(fBE_coh2+1)*omega(ii,mm))
+             fBE1=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
+             fBE2=1.d0/(exp(hbar*omega(ii,mm)/Kb/T)-1.D0)
+             tmp_coh=tmp_coh*(fBE1*(fBE1+1)*omega(ii,jj)+fBE2*(fBE2+1)*omega(ii,mm))
              tmp_coh=tmp_coh*(omega(ii,jj)+omega(ii,mm))/2*(rate(jj,ii)+rate(mm,ii))
              tmp_coh=tmp_coh/(4*(omega(ii,jj)-omega(ii,mm))**2+(rate(jj,ii)+rate(mm,ii))**2)
              do kk=1,nticks             
@@ -190,7 +194,7 @@ contains
     real(kind=8),intent(in) :: omega(nptk,Nbands),rate(Nbands,nptk),velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
     real(kind=8),intent(out) :: ticks(nticks),results(Nbands,3,3,Nticks),results_coh(Nbands,Nbands,3,3,Nticks)
 
-    real(kind=8) :: fBE,fBE_coh1,fBE_coh2,tmp(3,3),tmp_coh(3,3),lambda,lambda_coh
+    real(kind=8) :: fBE,fBE1,fBE2,tmp(3,3),tmp_coh(3,3),lambda,lambda_coh
     integer(kind=4) :: ii,jj,kk,mm,dir1,dir2
 
     REAL(kind=8)  EMIN,EMAX
@@ -226,17 +230,17 @@ contains
                 results(jj,:,:,kk)=results(jj,:,:,kk)+tmp
              end if
           end do
-          ! Coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)  
-          do mm=jj+1,Nbands
+          ! With coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)  
+          do mm=1,Nbands
              lambda_coh=(omega(ii,jj)+omega(ii,mm))/2
              do dir1=1,3
                 do dir2=1,3
-                   tmp_coh(dir1,dir2)=velocity_offdiag(ii,jj,mm,dir1)*velocity_offdiag(ii,jj,mm,dir2)
+                   tmp_coh(dir1,dir2)=velocity_offdiag(ii,jj,mm,dir1)*velocity_offdiag(ii,mm,jj,dir2)
                 end do
              end do
-             fBE_coh1=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
-             fBE_coh2=1.d0/(exp(hbar*omega(ii,mm)/Kb/T)-1.D0)
-             tmp_coh=tmp_coh*(fBE_coh1*(fBE_coh1+1)*omega(ii,jj)+fBE_coh2*(fBE_coh2+1)*omega(ii,mm))
+             fBE1=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
+             fBE2=1.d0/(exp(hbar*omega(ii,mm)/Kb/T)-1.D0)
+             tmp_coh=tmp_coh*(fBE1*(fBE1+1)*omega(ii,jj)+fBE2*(fBE2+1)*omega(ii,mm))
              tmp_coh=tmp_coh*(omega(ii,jj)+omega(ii,mm))/2*(rate(jj,ii)+rate(mm,ii))
              tmp_coh=tmp_coh/(4*(omega(ii,jj)-omega(ii,mm))**2+(rate(jj,ii)+rate(mm,ii))**2)
              do kk=1,nticks
