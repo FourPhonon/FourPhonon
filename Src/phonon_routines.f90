@@ -330,14 +330,13 @@ contains
              velocities(ik,i,ip)=real(dot_product(dyn_total(:,i),&
                   matmul(ddyn_total(:,:,ip),dyn_total(:,i))))
           end do
-          ! OFF-DIAGONALS - Junsoo Park
+          ! Off-diagonal velocity for the Wigner coherence term
           do j=1,nbands
              do jp=1,3
                 velocities_offdiag(ik,i,j,jp)=real(dot_product(dyn_total(:,i),&
                      matmul(ddyn_total(:,:,jp),dyn_total(:,j))))
              end do
              velocities_offdiag(ik,i,j,:)=velocities_offdiag(ik,i,j,:)/(omegas(ik,i)+omegas(ik,j))
-!             velocities_offdiag(ik,j,i,:)=velocities_offdiag(ik,i,j,:)
           end do
           velocities(ik,i,:)=velocities(ik,i,:)/(2.*omegas(ik,i))
        end do
@@ -685,14 +684,13 @@ contains
              velocities(ik,i,j)=real(dot_product(dyn(:,i),&
                   matmul(ddyn(:,:,j),dyn(:,i))))
           end do
-          ! OFF-DIAGONALS - Junsoo Park
+          ! Off-diagonal velocity for the Wigner coherence term 
           do j=1,nbands
              do jp=1,3
                 velocities_offdiag(ik,i,j,jp)=real(dot_product(dyn(:,i),&
                      matmul(ddyn(:,:,jp),dyn(:,j))))
              end do
              velocities_offdiag(ik,i,j,:)=velocities_offdiag(ik,i,j,:)/(omegas(ik,i)*omegas(ik,j))
-!             velocities_offdiag(ik,j,i,:)=velocities_offdiag(ik,i,j,:)
           end do
           velocities(ik,i,:)=velocities(ik,i,:)/(2.*omegas(ik,i))
        end do

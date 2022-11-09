@@ -38,7 +38,7 @@ contains
     implicit none
 
     integer(kind=4),intent(in) :: Nlist,Nequi(nptk),ALLEquiList(Nsymm_rot,nptk)
-    real(kind=8),intent(in) :: omega(nptk,Nbands)!,rate_ibz(Nbands,Nlist)
+    real(kind=8),intent(in) :: omega(nptk,Nbands)
     real(kind=8),intent(in) :: velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
     real(kind=8),intent(out) :: ThConductivity(Nbands,3,3), ThConductivityCoh(Nbands,Nbands,3,3)
     real(kind=8),intent(out) :: ThConductivityMode(nptk,Nbands,3,3),ThConductivityCohMode(nptk,Nbands,Nbands,3,3)
@@ -71,9 +71,9 @@ contains
                 tmp(dir1,dir2)=velocity(ii,jj,dir1)*F_n(jj,ii,dir2)
              end do
           end do
-          ! With coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)  
+          ! The Wigner coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)  
           do kk=1,Nbands
-             if (jj.eq.kk) then ! jj.ne.kk to test off-diagonal formulation = diagonal formulation of normal BTE
+             if (jj.eq.kk) then ! test jj.ne.kk to check off-diagonal formulation = diagonal formulation of normal BTE
                 cycle
              end if
              do dir1=1,3
@@ -159,7 +159,7 @@ contains
                 results(jj,:,:,kk)=results(jj,:,:,kk)+tmp
              end if
           end do
-          ! With coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
+          ! The Wigner coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
           do mm=1,Nbands
              lambda_coh=dot_product(velocity_offdiag(ii,jj,mm,:),velocity_offdiag(ii,mm,jj,:))/(&
                   ((omega(ii,jj)+omega(ii,mm))/2+1d-12)*dnrm2(3,velocity_offdiag(ii,jj,mm,:),1))
@@ -230,7 +230,7 @@ contains
                 results(jj,:,:,kk)=results(jj,:,:,kk)+tmp
              end if
           end do
-          ! With coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)  
+          ! The Wigner coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)  
           do mm=1,Nbands
              lambda_coh=(omega(ii,jj)+omega(ii,mm))/2
              do dir1=1,3
