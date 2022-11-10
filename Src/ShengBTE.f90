@@ -1,4 +1,4 @@
-!  Fourphonon-: An extension module to ShengBTE for computing four-phonon scattering rates and thermal conductivity
+!  Fourphonon: An extension module to ShengBTE for computing four-phonon scattering rates and thermal conductivity
 !  Copyright (C) 2021 Zherui Han <zrhan@purdue.edu>
 !  Copyright (C) 2021 Xiaolong Yang <xiaolongyang1990@gmail.com>
 !  Copyright (C) 2021 Wu Li <wu.li.phys2011@gmail.com>
@@ -258,7 +258,7 @@ program ShengBTE
      do ii=1,Nbands
         do ll=1,Nlist
            write(1,"(3E20.10)") velocity(list(ll),ii,:)
-           do jj=ii,Nbands
+           do jj=1,Nbands
               write(2,"(3E20.10)") velocity_offdiag(list(ll),ii,jj,:)
            end do
         end do

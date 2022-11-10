@@ -89,7 +89,7 @@ contains
           ! Coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
           do kk=jj+1,nbands
              x_coh=hbar*(omega(ii,jj)+omega(ii,kk))/2/(2.*kB*T)
-             dBE_coh=(x/sinh(x))**2.
+             dBE_coh=(x_coh/sinh(x_coh))**2.
              tmp_coh=dnrm2(3,velocity_offdiag(ii,jj,kk,:),1)
              if(tmp_coh.lt.1d-12) then
                 cycle
