@@ -680,9 +680,9 @@ contains
        omegas(ik,:)=sign(sqrt(abs(omega2)),omega2)
 
        do i=1,nbands
-          do j=1,3
-             velocities(ik,i,j)=real(dot_product(dyn(:,i),&
-                  matmul(ddyn(:,:,j),dyn(:,i))))
+          do ip=1,3
+             velocities(ik,i,ip)=real(dot_product(dyn(:,i),&
+                  matmul(ddyn(:,:,ip),dyn(:,i))))
           end do
           ! Off-diagonal velocity for the Wigner coherence term 
           do j=1,nbands
@@ -690,7 +690,7 @@ contains
                 velocities_offdiag(ik,i,j,jp)=real(dot_product(dyn(:,i),&
                      matmul(ddyn(:,:,jp),dyn(:,j))))
              end do
-             velocities_offdiag(ik,i,j,:)=velocities_offdiag(ik,i,j,:)/(omegas(ik,i)*omegas(ik,j))
+             velocities_offdiag(ik,i,j,:)=velocities_offdiag(ik,i,j,:)/(omegas(ik,i)+omegas(ik,j))
           end do
           velocities(ik,i,:)=velocities(ik,i,:)/(2.*omegas(ik,i))
        end do

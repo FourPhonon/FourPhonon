@@ -23,5 +23,5 @@
 	convergence=.TRUE.
 	espresso=.TRUE.
 	isotopes=.FALSE.
-	four_phonon=.TRUE.
+	four_phonon=.FALSE.
 &end
