@@ -34,7 +34,7 @@ contains
 
   ! Straightforward implementation of the thermal conductivity as an integral
   ! over the whole Brillouin zone in terms of frequencies, velocities and F_n.
-  subroutine TConduct(omega,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
+  subroutine TConduct(omega,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode,rate)
     implicit none
 
     integer(kind=4),intent(in) :: Nlist,Nequi(nptk),ALLEquiList(Nsymm_rot,nptk)
@@ -42,9 +42,10 @@ contains
     real(kind=8),intent(in) :: velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
     real(kind=8),intent(out) :: ThConductivity(Nbands,3,3), ThConductivityCoh(Nbands,Nbands,3,3)
     real(kind=8),intent(out) :: ThConductivityMode(nptk,Nbands,3,3),ThConductivityCohMode(nptk,Nbands,Nbands,3,3)
+    real(kind=8),intent(out) :: rate(Nbands,nptk)
 
     integer(kind=4) :: ii,jj,kk,ll,dir1,dir2
-    real(kind=8) :: fBE,fBE1,fBE2,tmp(3,3),tmp_coh(3,3),rate(Nbands,nptk)
+    real(kind=8) :: fBE,fBE1,fBE2,tmp(3,3),tmp_coh(3,3)
 
 
     ThConductivity=0.d0
@@ -58,10 +59,9 @@ contains
           if (norm2(F_n(jj,ii,:)).ne.0 .and. omega(ii,jj).gt.0) then
              rate(jj,ii)=norm2(velocity(ii,jj,:))*omega(ii,jj)/norm2(F_n(jj,ii,:)) ! F_n has omega factor
           end if
-!          print *, "RATE:", jj,ii, rate(jj,ii)
        end do
     end do
-    print *, "RATE Avg. over qpoint:", sum(rate,dim=2)/nptk
+!    print *, "RATE Avg. over qpoint:", sum(rate,dim=2)/nptk
 
     ! Calculate thermal conductivity
     do jj=1,Nbands
@@ -130,7 +130,7 @@ contains
     implicit none
 
     real(kind=8),intent(in) :: omega(nptk,Nbands),rate(Nbands,nptk),velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
-    real(kind=8),intent(out) :: ticks(nticks),results(Nbands,3,3,Nticks),results_coh(Nbands,Nbands,3,3,Nticks)
+    real(kind=8),intent(out) :: ticks(nticks),results(Nbands,3,3,Nticks),results_coh(Nbands,3,3,Nticks)
 
     real(kind=8) :: fBE,fBE1,fBE2,tmp(3,3),tmp_coh(3,3),lambda,lambda_coh
     integer(kind=4) :: ii,jj,kk,mm,dir1,dir2
@@ -161,8 +161,11 @@ contains
           end do
           ! The Wigner coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
           do mm=1,Nbands
-             lambda_coh=dot_product(velocity_offdiag(ii,jj,mm,:),velocity_offdiag(ii,mm,jj,:))/(&
-                  ((omega(ii,jj)+omega(ii,mm))/2+1d-12)*dnrm2(3,velocity_offdiag(ii,jj,mm,:),1))
+             if (jj.eq.mm) then
+                cycle
+             end if
+             lambda_coh=dot_product(velocity_offdiag(ii,jj,mm,:),velocity_offdiag(ii,mm,jj,:))/&
+                  (rate(mm,ii)*dnrm2(3,velocity_offdiag(ii,jj,mm,:),1))
              do dir1=1,3
                 do dir2=1,3
                    tmp_coh(dir1,dir2)=velocity_offdiag(ii,jj,mm,dir1)*velocity_offdiag(ii,mm,jj,dir2)
@@ -175,7 +178,7 @@ contains
              tmp_coh=tmp_coh/(4*(omega(ii,jj)-omega(ii,mm))**2+(rate(jj,ii)+rate(mm,ii))**2)
              do kk=1,nticks             
                 if(ticks(kk).gt.lambda_coh) then
-                   results_coh(jj,mm,:,:,kk)=results_coh(jj,mm,:,:,kk)+tmp_coh
+                   results_coh(jj,:,:,kk)=results_coh(jj,:,:,kk)+tmp_coh
                 end if
              end do
           end do
@@ -192,7 +195,7 @@ contains
     implicit none
 
     real(kind=8),intent(in) :: omega(nptk,Nbands),rate(Nbands,nptk),velocity(nptk,Nbands,3),velocity_offdiag(nptk,Nbands,Nbands,3),F_n(Nbands,nptk,3)
-    real(kind=8),intent(out) :: ticks(nticks),results(Nbands,3,3,Nticks),results_coh(Nbands,Nbands,3,3,Nticks)
+    real(kind=8),intent(out) :: ticks(nticks),results(Nbands,3,3,Nticks),results_coh(Nbands,3,3,Nticks)
 
     real(kind=8) :: fBE,fBE1,fBE2,tmp(3,3),tmp_coh(3,3),lambda,lambda_coh
     integer(kind=4) :: ii,jj,kk,mm,dir1,dir2
@@ -232,6 +235,9 @@ contains
           end do
           ! The Wigner coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)  
           do mm=1,Nbands
+             if (jj.eq.mm) then
+                cycle
+             end if
              lambda_coh=(omega(ii,jj)+omega(ii,mm))/2
              do dir1=1,3
                 do dir2=1,3
@@ -245,7 +251,7 @@ contains
              tmp_coh=tmp_coh/(4*(omega(ii,jj)-omega(ii,mm))**2+(rate(jj,ii)+rate(mm,ii))**2)
              do kk=1,nticks
                 if(ticks(kk).gt.lambda_coh) then
-                   results_coh(jj,mm,:,:,kk)=results_coh(jj,mm,:,:,kk)+tmp_coh
+                   results_coh(jj,:,:,kk)=results_coh(jj,:,:,kk)+tmp_coh
                 end if
              end do
           end do

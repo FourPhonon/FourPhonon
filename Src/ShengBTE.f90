@@ -54,7 +54,7 @@ program ShengBTE
 
   real(kind=8),allocatable :: grun(:,:)
 
-  real(kind=8),allocatable :: rate_scatt(:,:),rate_scatt_plus(:,:),rate_scatt_minus(:,:)
+  real(kind=8),allocatable :: rate_scatt(:,:),rate_scatt_plus(:,:),rate_scatt_minus(:,:),rate(:,:)
   real(kind=8),allocatable :: rate_scatt_plus_N(:,:),rate_scatt_minus_N(:,:),rate_scatt_plus_U(:,:),rate_scatt_minus_U(:,:)
    
   ! Variables related to four-phonon scatterings
@@ -77,7 +77,7 @@ program ShengBTE
   real(kind=8),allocatable :: F_n(:,:,:),F_n_0(:,:,:),F_n_aux(:,:)
   real(kind=8),allocatable :: ThConductivity(:,:,:),ThConductivityCoh(:,:,:,:)
   real(kind=8),allocatable :: ThConductivityMode(:,:,:,:),ThConductivityCohMode(:,:,:,:,:)
-  real(kind=8),allocatable :: ticks(:),cumulative_kappa(:,:,:,:),cumulative_kappa_coh(:,:,:,:,:)
+  real(kind=8),allocatable :: ticks(:),cumulative_kappa(:,:,:,:),cumulative_kappa_coh(:,:,:,:)
 
 
   integer(kind=4) :: Ntri
@@ -1009,7 +1009,8 @@ program ShengBTE
         open(2008,file="BTE.kappa_total_tensor",status="replace")
         open(2009,file="BTE.kappa_total_scalar",status="replace")
 
-        call TConduct(energy,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
+        allocate(rate(nbands,nptk))
+        call TConduct(energy,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode,rate)
         do ll=1,nbands
            call symmetrize_tensor(ThConductivity(ll,:,:))
            ! The Wigner coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
@@ -1053,7 +1054,7 @@ program ShengBTE
                  F_n(:,ll,:)=transpose(matmul(symmetrizers(:,:,ll),transpose(F_n(:,ll,:))))
               end do
 
-              call TConduct(energy,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode)
+              call TConduct(energy,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode,rate)
               do ll=1,nbands
                  call symmetrize_tensor(ThConductivity(ll,:,:))
                  ! The Wigner coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
@@ -1151,16 +1152,17 @@ program ShengBTE
            end do
         end if
 
-        allocate(ticks(nticks),cumulative_kappa(nbands,3,3,nticks),cumulative_kappa_coh(nbands,nbands,3,3,nticks))
+        allocate(ticks(nticks),cumulative_kappa(nbands,3,3,nticks),cumulative_kappa_coh(nbands,3,3,nticks))
         ! Cumulative thermal conductivity.
-        call CumulativeTConduct(energy,rate_scatt,velocity,velocity_offdiag,F_n,ticks,cumulative_kappa,cumulative_kappa_coh)
+        call CumulativeTConduct(energy,rate,velocity,velocity_offdiag,F_n,ticks,cumulative_kappa,cumulative_kappa_coh)
         do ii=1,nticks
            do ll=1,nbands
               call symmetrize_tensor(cumulative_kappa(ll,:,:,ii))
-              do mm=ll+1,nbands
-                 call symmetrize_tensor(cumulative_kappa_coh(ll,mm,:,:,ii))
-                 cumulative_kappa_coh(mm,ll,:,:,ii)=cumulative_kappa_coh(ll,mm,:,:,ii)
-              end do
+              call symmetrize_tensor(cumulative_kappa_coh(ll,:,:,ii))
+!              do mm=ll+1,nbands
+!                 call symmetrize_tensor(cumulative_kappa_coh(ll,mm,:,:,ii))
+!                 cumulative_kappa_coh(mm,ll,:,:,ii)=cumulative_kappa_coh(ll,mm,:,:,ii)
+!              end do
            end do
         end do
         write(aux,"(I0)") 9*nbands+1
@@ -1175,10 +1177,13 @@ program ShengBTE
                 sum(sum(cumulative_kappa(:,:,:,ii),dim=1),&
                 reshape((/((i==j,i=1,3),j=1,3)/),(/3,3/)))/3.
            write(2004,"(10E20.10)") ticks(ii),&
-                sum(sum(cumulative_kappa_coh(:,:,:,:,ii),dim=1),dim=1)
+                sum(cumulative_kappa_coh(:,:,:,ii),dim=1)
+                !sum(sum(cumulative_kappa_coh(:,:,:,:,ii),dim=1),dim=1)
            write(2005,"(2E20.10)") ticks(ii),&
-                sum(sum(sum(cumulative_kappa_coh(:,:,:,:,ii),dim=1),dim=1),&
+                sum(sum(cumulative_kappa_coh(:,:,:,ii),dim=1),&
                 reshape((/((i==j,i=1,3),j=1,3)/),(/3,3/)))/3.
+                !sum(sum(sum(cumulative_kappa_coh(:,:,:,:,ii),dim=1),dim=1),&
+                !reshape((/((i==j,i=1,3),j=1,3)/),(/3,3/)))/3.
         end do
         close(2002)
         close(2003)
@@ -1187,15 +1192,16 @@ program ShengBTE
         deallocate(ticks,cumulative_kappa,cumulative_kappa_coh)
 
         ! Cumulative thermal conductivity vs angular frequency.
-        allocate(ticks(nticks),cumulative_kappa(nbands,3,3,nticks),cumulative_kappa_coh(nbands,nbands,3,3,nticks))
-        call CumulativeTConductOmega(energy,rate_scatt,velocity,velocity_offdiag,F_n,ticks,cumulative_kappa,cumulative_kappa_coh)
+        allocate(ticks(nticks),cumulative_kappa(nbands,3,3,nticks),cumulative_kappa_coh(nbands,3,3,nticks))
+        call CumulativeTConductOmega(energy,rate,velocity,velocity_offdiag,F_n,ticks,cumulative_kappa,cumulative_kappa_coh)
         do ii=1,nticks
            do ll=1,nbands
               call symmetrize_tensor(cumulative_kappa(ll,:,:,ii))
-              do mm=ll+1,nbands
-                 call symmetrize_tensor(cumulative_kappa_coh(ll,mm,:,:,ii))
-                 cumulative_kappa_coh(mm,ll,:,:,ii)=cumulative_kappa_coh(ll,mm,:,:,ii)
-              end do
+              call symmetrize_tensor(cumulative_kappa_coh(ll,:,:,ii)) 
+!              do mm=ll+1,nbands
+!                 call symmetrize_tensor(cumulative_kappa_coh(ll,mm,:,:,ii))
+!                 cumulative_kappa_coh(mm,ll,:,:,ii)=cumulative_kappa_coh(ll,mm,:,:,ii)
+!              end do
            end do
         end do
         write(aux,"(I0)") 9*nbands+1
@@ -1205,7 +1211,7 @@ program ShengBTE
            write(2002,"(10E20.10)") ticks(ii),&
                 sum(cumulative_kappa(:,:,:,ii),dim=1)
            write(2003,"(10E20.10)") ticks(ii),&
-                sum(sum(cumulative_kappa_coh(:,:,:,:,ii),dim=1),dim=1)
+                sum(cumulative_kappa_coh(:,:,:,ii),dim=1)
         end do
         close(2002)
         close(2003)
