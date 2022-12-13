@@ -366,12 +366,13 @@ program ShengBTE
   allocate(rate_scatt_minusminus_N(Nbands,Nlist))
   allocate(rate_scatt_minusminus_U(Nbands,Nlist))
 
-
+  allocate(rate(nbands,nptk))
 
   allocate(tau_zero(Nbands,Nlist))
   allocate(tau(Nbands,Nlist))
   allocate(tau2(Nbands,nptk))
 
+  rate=0.d0
   rate_scatt=0.d0
   rate_scatt_plus=0.d0
   rate_scatt_plus_N=0.d0
@@ -1009,7 +1010,6 @@ program ShengBTE
         open(2008,file="BTE.kappa_total_tensor",status="replace")
         open(2009,file="BTE.kappa_total_scalar",status="replace")
 
-        allocate(rate(nbands,nptk))
         call TConduct(energy,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode,rate)
         do ll=1,nbands
            call symmetrize_tensor(ThConductivity(ll,:,:))

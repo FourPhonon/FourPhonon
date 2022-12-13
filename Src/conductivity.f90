@@ -51,6 +51,7 @@ contains
     ThConductivity=0.d0
     ThConductivityMode=0.d0
     ThConductivityCoh=0.d0
+    ThConductivityCohMode=0.d0
     rate=0.d-5
 
     ! Scattering rate
@@ -61,7 +62,7 @@ contains
           end if
        end do
     end do
-!    print *, "RATE Avg. over qpoint:", sum(rate,dim=2)/nptk
+    print *, "RATE avg. over q-point:", sum(rate,dim=2)/nptk
 
     ! Calculate thermal conductivity
     do jj=1,Nbands
@@ -72,7 +73,7 @@ contains
              end do
           end do
           ! The Wigner coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)  
-          do kk=1,Nbands
+          do kk=jj,Nbands
              if (jj.eq.kk) then ! test jj.ne.kk to check off-diagonal formulation = diagonal formulation of normal BTE
                 cycle
              end if
@@ -87,13 +88,19 @@ contains
              ThConductivityCohMode(ii,jj,kk,:,:)=ThConductivityCohMode(ii,jj,kk,:,:)*(omega(ii,jj)+omega(ii,kk))/2*(rate(jj,ii)+rate(kk,ii))
              ThConductivityCohMode(ii,jj,kk,:,:)=ThConductivityCohMode(ii,jj,kk,:,:)/(4*(omega(ii,jj)-omega(ii,kk))**2+(rate(jj,ii)+rate(kk,ii))**2)
              ThConductivityCoh(jj,kk,:,:)=ThConductivityCoh(jj,kk,:,:)+ThConductivityCohMode(ii,jj,kk,:,:)
-!             ThConductivityCohMode(ii,kk,jj,:,:)=ThConductivityCohMode(ii,jj,kk,:,:)
-!             ThConductivityCoh(kk,jj,:,:)=ThConductivityCoh(jj,kk,:,:)
+             if (maxval(ThConductivityCohMode(ii,jj,kk,:,:)).gt.10**5) then
+                print *,ii,jj,kk,ThConductivityCohMode(ii,jj,kk,1,1),ThConductivityCohMode(ii,jj,kk,2,2), abs(omega(ii,jj)-omega(ii,kk)), rate(jj,ii)+rate(kk,ii)
+             end if
+             ThConductivityCohMode(ii,kk,jj,:,:)=ThConductivityCohMode(ii,jj,kk,:,:)
+             ThConductivityCoh(kk,jj,:,:)=ThConductivityCoh(jj,kk,:,:)
           end do
           fBE=1.d0/(exp(hbar*omega(ii,jj)/Kb/T)-1.D0)
           ThConductivityMode(ii,jj,:,:)=fBE*(fBE+1)*omega(ii,jj)*tmp
           ThConductivity(jj,:,:)=ThConductivity(jj,:,:)+ThConductivityMode(ii,jj,:,:)
        end do
+    end do
+    do jj=1,Nbands
+       print *, "Average for band ",jj,":", sum(sum(ThConductivityCohMode(:,jj,:,1,1),dim=1),dim=1)/nptk
     end do
     ThConductivity=1e21*hbar**2*ThConductivity/(kB*T*T*V*nptk)
     ThConductivityMode=1e21*hbar**2*ThConductivityMode/(kB*T*T*V*nptk)
