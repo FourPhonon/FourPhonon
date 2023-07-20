@@ -1,4 +1,4 @@
-!  FourPhonon: An extension module to ShengBTE for computing four-phonon scattering rates and thermal conductivity
+!  Fourphonon: An extension module to ShengBTE for computing four-phonon scattering rates and thermal conductivity
 !  Copyright (C) 2021 Zherui Han <zrhan@purdue.edu>
 !  Copyright (C) 2021 Xiaolong Yang <xiaolongyang1990@gmail.com>
 !  Copyright (C) 2021 Wu Li <wu.li.phys2011@gmail.com>
@@ -46,15 +46,15 @@ program ShengBTE
   include "mpif.h"
   
 
-  real(kind=8) :: kappa_sg(3,3),kappa_old(3,3),relchange
+  real(kind=8) :: kappa_sg(3,3),kappa_coh_sg(3,3),kappa_old(3,3),relchange
   integer(kind=4) :: i,j,ii,jj,kk,ll,mm
   integer(kind=4) :: Tcounter
-  real(kind=8),allocatable :: energy(:,:),q0(:,:),q0_reduced(:,:),velocity(:,:,:),velocity_z(:,:)
+  real(kind=8),allocatable :: energy(:,:),q0(:,:),q0_reduced(:,:),velocity(:,:,:),velocity_z(:,:),velocity_offdiag(:,:,:,:)
   complex(kind=8),allocatable :: eigenvect(:,:,:)
 
   real(kind=8),allocatable :: grun(:,:)
 
-  real(kind=8),allocatable :: rate_scatt(:,:),rate_scatt_plus(:,:),rate_scatt_minus(:,:)
+  real(kind=8),allocatable :: rate_scatt(:,:),rate_scatt_plus(:,:),rate_scatt_minus(:,:),rate(:,:)
   real(kind=8),allocatable :: rate_scatt_plus_N(:,:),rate_scatt_minus_N(:,:),rate_scatt_plus_U(:,:),rate_scatt_minus_U(:,:)
    
   ! Variables related to four-phonon scatterings
@@ -75,9 +75,9 @@ program ShengBTE
   real(kind=8),allocatable :: tau_zero(:,:),tau(:,:),tau_b(:,:),tau2(:,:),tau_b2(:,:)
   real(kind=8),allocatable :: dos(:),pdos(:,:),rate_scatt_isotope(:,:)
   real(kind=8),allocatable :: F_n(:,:,:),F_n_0(:,:,:),F_n_aux(:,:)
-  real(kind=8),allocatable :: ThConductivity(:,:,:)
-  real(kind=8),allocatable :: ThConductivityMode(:,:,:,:)
-  real(kind=8),allocatable :: ticks(:),cumulative_kappa(:,:,:,:)
+  real(kind=8),allocatable :: ThConductivity(:,:,:),ThConductivityCoh(:,:,:,:)
+  real(kind=8),allocatable :: ThConductivityMode(:,:,:,:),ThConductivityCohMode(:,:,:,:,:)
+  real(kind=8),allocatable :: ticks(:),cumulative_kappa(:,:,:,:),cumulative_kappa_coh(:,:,:,:)
 
 
   integer(kind=4) :: Ntri
@@ -129,12 +129,15 @@ program ShengBTE
   allocate(q0(nptk,3),q0_reduced(nptk,3))
   allocate(velocity(nptk,nbands,3))
   allocate(velocity_z(nptk,nbands))
+  allocate(velocity_offdiag(nptk,nbands,nbands,3))
   allocate(IJK(3,nptk))
   allocate(Index_N(0:(ngrid(1)-1),0:(ngrid(2)-1),0:(ngrid(3)-1)))
   allocate(F_n(nbands,nptk,3))
   allocate(F_n_0(nbands,nptk,3),F_n_aux(nbands,nptk))
   allocate(ThConductivity(nbands,3,3))
   allocate(ThConductivityMode(nptk,nbands,3,3))
+  allocate(ThConductivityCoh(nbands,nbands,3,3))
+  allocate(ThConductivityCohMode(nptk,nbands,nbands,3,3))
   allocate(kappa_wires(nbands,nwires))
   allocate(kappa_wires_reduce(nbands,nwires))
   allocate(Nequi(nptk))
@@ -156,7 +159,6 @@ program ShengBTE
         eqclasses(ALLEquiList(kk,ll))=ll !List(ll)
      end do
   end do
-
 
   do ii=1,Ngrid(1)
      do jj=1,Ngrid(2)
@@ -201,11 +203,13 @@ program ShengBTE
         write(*,*) "Info: expecting Phonopy 2nd-order format"
      end if
   end if
-  call eigenDM(energy,eigenvect,velocity)
+  call eigenDM(energy,eigenvect,velocity,velocity_offdiag)
   if(myid.eq.0)write(*,*) "Info: spectrum calculation finished"
 
   open(101,file="BTE.cvVsT")
   open(102,file="BTE.KappaTensorVsT_sg")
+  open(103,file="BTE.KappaCohTensorVsT_sg")
+  open(104,file="BTE.KappaTotalTensorVsT_sg")
   if (myid.eq.0) print*, "Info: start calculating specific heat and kappa in the small-grain limit "
   do Tcounter=1,ceiling((T_max-T_min)/T_step)+1
      T=T_min+(Tcounter-1)*T_step
@@ -223,14 +227,24 @@ program ShengBTE
         open(1,file="BTE.cv",status="replace")
         write(1,*) cv(energy)
         close(1)
-        call kappasg(energy,velocity,kappa_sg)
+        call kappasg(energy,velocity,velocity_offdiag,kappa_sg,kappa_coh_sg)
         open(1,file="BTE.kappa_sg",status="replace")
+        open(2,file="BTE.kappa_coh_sg",status="replace")
+        open(3,file="BTE.kappa_total_sg",status="replace")
         write(1,"(9E14.5)") kappa_sg
         close(1)
+        write(2,"(9E14.5)") kappa_coh_sg
+        close(2)
+        write(3,"(9E14.5)") kappa_sg+kappa_coh_sg
+        close(3)
         write(101,"(F7.1,E14.5)") T,cv(energy)
         flush(101)
         write(102,"(F7.1,9E14.5)") T,kappa_sg
         flush(102)
+        write(103,"(F7.1,9E14.5)") T,kappa_coh_sg
+        flush(103)
+        write(104,"(F7.1,9E14.5)") T,kappa_sg+kappa_coh_sg
+        flush(104)
         call change_directory(".."//C_NULL_CHAR)
      end if
   end do
@@ -240,12 +254,17 @@ program ShengBTE
   write(aux,"(I0)") 3*Nbands
   if(myid.eq.0) then
      open(1,file="BTE.v",status="replace")
+     open(2,file="BTE.v_offdiag",status="replace")
      do ii=1,Nbands
         do ll=1,Nlist
            write(1,"(3E20.10)") velocity(list(ll),ii,:)
+           do jj=1,Nbands
+              write(2,"(3E20.10)") velocity_offdiag(list(ll),ii,jj,:)
+           end do
         end do
      end do
      close(1)
+     close(2)
      open(1,file="BTE.v_full",status="replace")
      do ii=1,Nbands
         do ll=1,nptk
@@ -347,12 +366,13 @@ program ShengBTE
   allocate(rate_scatt_minusminus_N(Nbands,Nlist))
   allocate(rate_scatt_minusminus_U(Nbands,Nlist))
 
-
+  allocate(rate(nbands,nptk))
 
   allocate(tau_zero(Nbands,Nlist))
   allocate(tau(Nbands,Nlist))
   allocate(tau2(Nbands,nptk))
 
+  rate=0.d0
   rate_scatt=0.d0
   rate_scatt_plus=0.d0
   rate_scatt_plus_N=0.d0
@@ -661,8 +681,12 @@ program ShengBTE
 
 
   open(303,file="BTE.KappaTensorVsT_RTA")
+  open(503,file="BTE.KappaCohTensorVsT_RTA")
+  open(703,file="BTE.KappaTotalTensorVsT_RTA")
   if(convergence) then
      open(403,file="BTE.KappaTensorVsT_CONV")
+     open(603,file="BTE.KappaCohTensorVsT_CONV")
+     open(803,file="BTE.KappaTotalTensorVsT_CONV")
      allocate(Indof2ndPhonon_plus(Ntotal_plus))
      allocate(Indof3rdPhonon_plus(Ntotal_plus))
      allocate(Indof2ndPhonon_minus(Ntotal_minus))
@@ -701,7 +725,7 @@ program ShengBTE
              Indof2ndPhonon_plus,Indof3rdPhonon_plus,Gamma_plus,&
              Indof2ndPhonon_minus,Indof3rdPhonon_minus,Gamma_minus,rate_scatt,&
              rate_scatt_plus,rate_scatt_minus,Pspace_plus_total,Pspace_minus_total)
-        ! Will add fou-phonon iteration capabilities when we publish
+        ! Will add four-phonon iteration capabilities when we publish
         ! tag four_phonon_iteration is reserved here
         if (four_phonon.and.four_phonon_iteration.eq. .false.) then
           call RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
@@ -971,7 +995,6 @@ program ShengBTE
         end do
      end do
 
-
      ! Set up everything to start the iterative process.
      call iteration0(Nlist,Nequi,ALLEquiList,energy,velocity,tau_zero,F_n)
      F_n_0=F_n
@@ -980,17 +1003,41 @@ program ShengBTE
         open(2001,file="BTE.kappa",status="replace")
         open(2002,file="BTE.kappa_tensor",status="replace")
         open(2003,file="BTE.kappa_scalar",status="replace")
-        call TConduct(energy,velocity,F_n,ThConductivity,ThConductivityMode)
+        open(2004,file="BTE.kappa_coh",status="replace")
+        open(2005,file="BTE.kappa_coh_tensor",status="replace")
+        open(2006,file="BTE.kappa_coh_scalar",status="replace")
+        open(2007,file="BTE.kappa_total",status="replace")
+        open(2008,file="BTE.kappa_total_tensor",status="replace")
+        open(2009,file="BTE.kappa_total_scalar",status="replace")
+
+        call TConduct(energy,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode,rate)
         do ll=1,nbands
            call symmetrize_tensor(ThConductivity(ll,:,:))
+           ! The Wigner coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
+           do mm=ll+1,nbands
+              call symmetrize_tensor(ThConductivityCoh(ll,mm,:,:))
+              ThConductivityCoh(mm,ll,:,:)=ThConductivityCoh(ll,mm,:,:)
+           end do
         end do
         write(aux,"(I0)") 9*Nbands
         write(2001,"(I9,"//trim(adjustl(aux))//"E20.10)") 0,ThConductivity
         write(2002,"(I9,9E20.10,E20.10)") 0,sum(ThConductivity,dim=1)
         write(2003,"(I9,E20.10,E20.10)") 0,&
              sum(sum(ThConductivity,dim=1),reshape((/((i==j,i=1,3),j=1,3)/),(/3,3/)))/3.
+        write(2004,"(I9,"//trim(adjustl(aux))//"E20.10)") 0,ThConductivityCoh
+        write(2005,"(I9,9E20.10,E20.10)") 0,sum(sum(ThConductivityCoh,dim=1),dim=1)
+        write(2006,"(I9,E20.10,E20.10)") 0,&
+             sum(sum(sum(ThConductivityCoh,dim=1),dim=1),reshape((/((i==j,i=1,3),j=1,3)/),(/3,3/)))/3.
+        write(2007,"(I9,"//trim(adjustl(aux))//"E20.10)") 0,ThConductivity+sum(ThConductivityCoh,dim=1)
+        write(2008,"(I9,9E20.10,E20.10)") 0,sum(ThConductivity+sum(ThConductivityCoh,dim=1),dim=1)
+        write(2009,"(I9,E20.10,E20.10)") 0,&
+             sum(sum(ThConductivity+sum(ThConductivityCoh,dim=1),dim=1),reshape((/((i==j,i=1,3),j=1,3)/),(/3,3/)))/3.
         write(303,"(F7.1,9E14.5)") T,sum(ThConductivity,dim=1)
+        write(503,"(F7.1,9E14.5)") T,sum(sum(ThConductivityCoh,dim=1),dim=1)
+        write(703,"(F7.1,9E14.5)") T,sum(ThConductivity+sum(ThConductivityCoh,dim=1),dim=1)
         flush(303)
+        flush(503)
+        flush(703)
 
         ! Iterate to convergence if desired.
         if(convergence) then
@@ -1002,12 +1049,19 @@ program ShengBTE
                     Indof2ndPhonon_minus,Indof3rdPhonon_minus,energy,velocity,&
                     Gamma_plus,Gamma_minus,tau_zero,F_n)
               ! Correct F_n to prevent it drifting away from the symmetry of the system.
+            
               do ll=1,nptk
                  F_n(:,ll,:)=transpose(matmul(symmetrizers(:,:,ll),transpose(F_n(:,ll,:))))
               end do
-              call TConduct(energy,velocity,F_n,ThConductivity,ThConductivityMode)
+
+              call TConduct(energy,velocity,velocity_offdiag,F_n,Nlist,Nequi,ALLEquiList,ThConductivity,ThConductivityMode,ThConductivityCoh,ThConductivityCohMode,rate)
               do ll=1,nbands
                  call symmetrize_tensor(ThConductivity(ll,:,:))
+                 ! The Wigner coherence term: Simoncelli, Marzari, & Mauri. Nature Physics 15:809-813 (2019)
+                 do mm=ll+1,nbands
+                    call symmetrize_tensor(ThConductivityCoh(ll,mm,:,:))
+                    ThConductivityCoh(mm,ll,:,:)=ThConductivityCoh(ll,mm,:,:)
+                 end do
               end do
               write(2001,"(I9,"//trim(adjustl(aux))//"E20.10)") ii,ThConductivity
               flush(2001)
@@ -1016,6 +1070,13 @@ program ShengBTE
               write(2003,"(I9,E20.10)") ii,&
                    sum(sum(ThConductivity,dim=1),reshape((/((i==j,i=1,3),j=1,3)/),(/3,3/)))/3.
               flush(2003)
+              write(2004,"(I9,"//trim(adjustl(aux))//"E20.10)") ii,ThConductivityCoh
+              flush(2004)
+              write(2005,"(I9,9E20.10)") ii,sum(sum(ThConductivityCoh,dim=1),dim=1)
+              flush(2005)
+              write(2006,"(I9,E20.10)") ii,&
+                   sum(sum(sum(ThConductivityCoh,dim=1),dim=1),reshape((/((i==j,i=1,3),j=1,3)/),(/3,3/)))/3.
+              flush(2006)
               relchange=twonorm3x3(sum(ThConductivity,dim=1)-kappa_old)/&
                    twonorm3x3(kappa_old)
               write(*,*) "Info: Iteration",ii
@@ -1024,10 +1085,20 @@ program ShengBTE
            end do
            write(403,"(F7.1,9E14.5,I6)") T,sum(ThConductivity,dim=1),ii
            flush(403)
+           write(603,"(F7.1,9E14.5,I6)") T,sum(sum(ThConductivityCoh,dim=1),dim=1),ii
+           flush(603)
+           write(803,"(F7.1,9E14.5,I6)") T,sum(ThConductivity+sum(ThConductivityCoh,dim=1),dim=1),ii
+           flush(803)
         end if
         close(2001)
         close(2002)
         close(2003)
+        close(2004)
+        close(2005)
+        close(2006)
+        close(2007)
+        Close(2008)
+        close(2009)
 
         ! Write out the converged scattering rates.
         do ll=1,Nlist
@@ -1080,44 +1151,71 @@ program ShengBTE
               close(3001)
            end do
         end if
-        allocate(ticks(nticks),cumulative_kappa(nbands,3,3,nticks))
+
+        allocate(ticks(nticks),cumulative_kappa(nbands,3,3,nticks),cumulative_kappa_coh(nbands,3,3,nticks))
         ! Cumulative thermal conductivity.
-        call CumulativeTConduct(energy,velocity,F_n,ticks,cumulative_kappa)
+        call CumulativeTConduct(energy,rate,velocity,velocity_offdiag,F_n,ticks,cumulative_kappa,cumulative_kappa_coh)
         do ii=1,nticks
            do ll=1,nbands
               call symmetrize_tensor(cumulative_kappa(ll,:,:,ii))
+              call symmetrize_tensor(cumulative_kappa_coh(ll,:,:,ii))
+!              do mm=ll+1,nbands
+!                 call symmetrize_tensor(cumulative_kappa_coh(ll,mm,:,:,ii))
+!                 cumulative_kappa_coh(mm,ll,:,:,ii)=cumulative_kappa_coh(ll,mm,:,:,ii)
+!              end do
            end do
         end do
         write(aux,"(I0)") 9*nbands+1
         open(2002,file="BTE.cumulative_kappa_tensor",status="replace")
         open(2003,file="BTE.cumulative_kappa_scalar",status="replace")
+        open(2004,file="BTE.cumulative_kappa_coh_tensor",status="replace")
+        open(2005,file="BTE.cumulative_kappa_coh_scalar",status="replace")
         do ii=1,nticks
            write(2002,"(10E20.10)") ticks(ii),&
                 sum(cumulative_kappa(:,:,:,ii),dim=1)
            write(2003,"(2E20.10)") ticks(ii),&
                 sum(sum(cumulative_kappa(:,:,:,ii),dim=1),&
                 reshape((/((i==j,i=1,3),j=1,3)/),(/3,3/)))/3.
+           write(2004,"(10E20.10)") ticks(ii),&
+                sum(cumulative_kappa_coh(:,:,:,ii),dim=1)
+                !sum(sum(cumulative_kappa_coh(:,:,:,:,ii),dim=1),dim=1)
+           write(2005,"(2E20.10)") ticks(ii),&
+                sum(sum(cumulative_kappa_coh(:,:,:,ii),dim=1),&
+                reshape((/((i==j,i=1,3),j=1,3)/),(/3,3/)))/3.
+                !sum(sum(sum(cumulative_kappa_coh(:,:,:,:,ii),dim=1),dim=1),&
+                !reshape((/((i==j,i=1,3),j=1,3)/),(/3,3/)))/3.
         end do
         close(2002)
         close(2003)
-        deallocate(ticks,cumulative_kappa)
+        close(2004)
+        close(2005)
+        deallocate(ticks,cumulative_kappa,cumulative_kappa_coh)
 
         ! Cumulative thermal conductivity vs angular frequency.
-        allocate(ticks(nticks),cumulative_kappa(nbands,3,3,nticks))
-        call CumulativeTConductOmega(energy,velocity,F_n,ticks,cumulative_kappa)
+        allocate(ticks(nticks),cumulative_kappa(nbands,3,3,nticks),cumulative_kappa_coh(nbands,3,3,nticks))
+        call CumulativeTConductOmega(energy,rate,velocity,velocity_offdiag,F_n,ticks,cumulative_kappa,cumulative_kappa_coh)
         do ii=1,nticks
            do ll=1,nbands
               call symmetrize_tensor(cumulative_kappa(ll,:,:,ii))
+              call symmetrize_tensor(cumulative_kappa_coh(ll,:,:,ii)) 
+!              do mm=ll+1,nbands
+!                 call symmetrize_tensor(cumulative_kappa_coh(ll,mm,:,:,ii))
+!                 cumulative_kappa_coh(mm,ll,:,:,ii)=cumulative_kappa_coh(ll,mm,:,:,ii)
+!              end do
            end do
         end do
         write(aux,"(I0)") 9*nbands+1
         open(2002,file="BTE.cumulative_kappaVsOmega_tensor",status="replace")
+        open(2003,file="BTE.cumulative_kappa_cohVsOmega_tensor",status="replace")
         do ii=1,nticks
            write(2002,"(10E20.10)") ticks(ii),&
                 sum(cumulative_kappa(:,:,:,ii),dim=1)
+           write(2003,"(10E20.10)") ticks(ii),&
+                sum(cumulative_kappa_coh(:,:,:,ii),dim=1)
         end do
         close(2002)
-        deallocate(ticks,cumulative_kappa)
+        close(2003)
+        deallocate(ticks,cumulative_kappa,cumulative_kappa_coh)
      end if
 
      call MPI_BARRIER(MPI_COMM_WORLD,ierr)

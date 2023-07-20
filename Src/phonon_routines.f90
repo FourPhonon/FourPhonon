@@ -35,18 +35,18 @@ module phonon_routines
 contains
 
   ! Create the q-point grid and compute all relevant properties.
-  subroutine eigenDM(omega,eigenvect,velocity)
+  subroutine eigenDM(omega,eigenvect,velocity,velocity_offdiag)
     implicit none
 
     include "mpif.h"
 
-    real(kind=8),intent(out) :: omega(nptk,nbands),velocity(nptk,nbands,3)
+    real(kind=8),intent(out) :: omega(nptk,nbands),velocity(nptk,nbands,3),velocity_offdiag(nptk,nbands,nbands,3)
     complex(kind=8),intent(out) :: eigenvect(nptk,Nbands,Nbands)
 
-    real(kind=8),allocatable :: omega_reduce(:,:),velocity_reduce(:,:,:)
+    real(kind=8),allocatable :: omega_reduce(:,:),velocity_reduce(:,:,:),velocity_offdiag_reduce(:,:,:,:)
     complex(kind=8),allocatable :: eigenvect_reduce(:,:,:)
     real(kind=8) :: kspace(nptk,3)
-    integer(kind=4) :: indexK,ii,jj,kk
+    integer(kind=4) :: indexK,ii,jj,kk,j
     character(len=1) :: aux
 
     do ii=1,Ngrid(1)        ! rlattvec(:,1) direction
@@ -60,9 +60,10 @@ contains
        end do
     end do
     allocate(omega_reduce(nptk,nbands),velocity_reduce(nptk,nbands,3),&
-         eigenvect_reduce(nptk,Nbands,Nbands))
+         velocity_offdiag_reduce(nptk,nbands,nbands,3),eigenvect_reduce(nptk,Nbands,Nbands))
     omega_reduce=0.
     velocity_reduce=0.
+    velocity_offdiag_reduce=0.
     eigenvect_reduce=0.
     kk=ceiling(float(nptk)/numprocs)
     ii=min(nptk,kk*myid)+1
@@ -71,23 +72,29 @@ contains
     ! flag in the CONTROL file.
     if(espresso) then
        call phonon_espresso(kspace(ii:jj,:),omega_reduce(ii:jj,:),&
-            velocity_reduce(ii:jj,:,:),eigenvect_reduce(ii:jj,:,:))
+            velocity_reduce(ii:jj,:,:),velocity_offdiag_reduce(ii:jj,:,:,:),eigenvect_reduce(ii:jj,:,:))
     else
        call phonon_phonopy(kspace(ii:jj,:),omega_reduce(ii:jj,:),&
-            velocity_reduce(ii:jj,:,:),eigenvect_reduce(ii:jj,:,:))
+            velocity_reduce(ii:jj,:,:),velocity_offdiag_reduce(ii:jj,:,:,:),eigenvect_reduce(ii:jj,:,:))
     end if
     call MPI_ALLREDUCE(omega_reduce,omega,nptk*nbands,MPI_DOUBLE_PRECISION,&
          MPI_SUM,MPI_COMM_WORLD,kk)
     call MPI_ALLREDUCE(velocity_reduce,velocity,nptk*nbands*3,&
          MPI_DOUBLE_PRECISION,MPI_SUM,MPI_COMM_WORLD,kk)
+    call MPI_ALLREDUCE(velocity_offdiag_reduce,velocity_offdiag,nptk*nbands*nbands*3,&
+         MPI_DOUBLE_PRECISION,MPI_SUM,MPI_COMM_WORLD,kk)
     call MPI_ALLREDUCE(eigenvect_reduce,eigenvect,nptk*nbands*nbands,&
          MPI_DOUBLE_COMPLEX,MPI_SUM,MPI_COMM_WORLD,kk)
-    deallocate(omega_reduce,velocity_reduce,eigenvect_reduce)
+    deallocate(omega_reduce,velocity_reduce,velocity_offdiag_reduce,eigenvect_reduce)
     ! Make sure that group velocities have the right symmetry at each q point.
     ! This solves the problem of undefined components for degenerate modes.
     do ii=1,nptk
        velocity(ii,:,:)=transpose(&
             matmul(symmetrizers(:,:,ii),transpose(velocity(ii,:,:))))
+       do j=1,nbands
+          velocity_offdiag(ii,:,j,:)=transpose(&
+               matmul(symmetrizers(:,:,ii),transpose(velocity_offdiag(ii,:,j,:))))
+       end do
     end do
     ! Make sure that acoustic frequencies and group velocities at Gamma
     ! are exactly zero.
@@ -101,14 +108,15 @@ contains
     end if
     omega(1,1:3)=0.d0
     velocity(1,1:3,:)=0.
+    velocity_offdiag(1,1:3,1:3,:)=0.
   end subroutine eigenDM
 
   ! Compute phonon dispersions, Phonopy style.
-  subroutine phonon_phonopy(kpoints,omegas,velocities,eigenvect)
+  subroutine phonon_phonopy(kpoints,omegas,velocities,velocities_offdiag,eigenvect)
     implicit none
 
     real(kind=8),intent(in) :: kpoints(:,:)
-    real(kind=8),intent(out) :: omegas(:,:),velocities(:,:,:)
+    real(kind=8),intent(out) :: omegas(:,:),velocities(:,:,:),velocities_offdiag(:,:,:,:)
     complex(kind=8),intent(out),optional :: eigenvect(:,:,:)
 
     real(kind=8),parameter :: prefactor=1745.91429109 ! THz^2 * amu * nm^3
@@ -121,7 +129,7 @@ contains
     real(kind=8),allocatable :: fc_diel(:,:,:,:,:,:,:)
     real(kind=8),allocatable :: fc_total(:,:,:,:,:,:,:)
 
-    integer(kind=4) :: i,j,ip,ik,neq
+    integer(kind=4) :: i,j,ip,jp,ik,neq
     integer(kind=4) :: ix1,iy1,iz1,iatom1,ix2,iy2,iz2,iatom2
     real(kind=8) :: tmp1,tmp2,tmp3,dmin,Rnorm
     real(kind=8) :: rcell(3),r(3),rl(3),rr(3,27),qr(27)
@@ -322,6 +330,14 @@ contains
              velocities(ik,i,ip)=real(dot_product(dyn_total(:,i),&
                   matmul(ddyn_total(:,:,ip),dyn_total(:,i))))
           end do
+          ! Off-diagonal velocity for the Wigner coherence term
+          do j=1,nbands
+             do jp=1,3
+                velocities_offdiag(ik,i,j,jp)=real(dot_product(dyn_total(:,i),&
+                     matmul(ddyn_total(:,:,jp),dyn_total(:,j))))
+             end do
+             velocities_offdiag(ik,i,j,:)=velocities_offdiag(ik,i,j,:)/(omegas(ik,i)+omegas(ik,j))
+          end do
           velocities(ik,i,:)=velocities(ik,i,:)/(2.*omegas(ik,i))
        end do
     end do
@@ -331,18 +347,18 @@ contains
 
   ! Adapted from the code of Quantum Espresso (
   ! http://www.quantum-espresso.org/ ), licensed under the GPL.
-  subroutine phonon_espresso(kpoints,omegas,velocities,eigenvect)
+  subroutine phonon_espresso(kpoints,omegas,velocities,velocities_offdiag,eigenvect)
     implicit none
 
     real(kind=8),intent(in) :: kpoints(:,:)
-    real(kind=8),intent(out) :: omegas(:,:),velocities(:,:,:)
+    real(kind=8),intent(out) :: omegas(:,:),velocities(:,:,:),velocities_offdiag(:,:,:,:)
     complex(kind=8),optional,intent(out) :: eigenvect(:,:,:)
 
     ! QE's 2nd-order files are in Ryd units.
     real(kind=8),parameter :: bohr2nm=0.052917721092,toTHz=20670.687,&
          massfactor=1.8218779*6.022e-4
 
-    integer(kind=4) :: ir,nreq,ntype,nat,ibrav,qscell(3)
+    integer(kind=4) :: ip,jp,ir,nreq,ntype,nat,ibrav,qscell(3)
     integer(kind=4) :: i,j,ipol,jpol,iat,jat,idim,jdim,t1,t2,t3,m1,m2,m3,ik
     integer(kind=4) :: ndim,nk,nwork,ncell_g(3)
     integer(kind=8),allocatable :: tipo(:)
@@ -664,9 +680,17 @@ contains
        omegas(ik,:)=sign(sqrt(abs(omega2)),omega2)
 
        do i=1,nbands
-          do j=1,3
-             velocities(ik,i,j)=real(dot_product(dyn(:,i),&
-                  matmul(ddyn(:,:,j),dyn(:,i))))
+          do ip=1,3
+             velocities(ik,i,ip)=real(dot_product(dyn(:,i),&
+                  matmul(ddyn(:,:,ip),dyn(:,i))))
+          end do
+          ! Off-diagonal velocity for the Wigner coherence term 
+          do j=1,nbands
+             do jp=1,3
+                velocities_offdiag(ik,i,j,jp)=real(dot_product(dyn(:,i),&
+                     matmul(ddyn(:,:,jp),dyn(:,j))))
+             end do
+             velocities_offdiag(ik,i,j,:)=velocities_offdiag(ik,i,j,:)/(omegas(ik,i)+omegas(ik,j))
           end do
           velocities(ik,i,:)=velocities(ik,i,:)/(2.*omegas(ik,i))
        end do
@@ -674,6 +698,7 @@ contains
     ! Return the result to the units used in the rest of ShengBTE.
     omegas=omegas*toTHz
     velocities=velocities*toTHz*bohr2nm
+    velocities_offdiag=velocities_offdiag*toTHz*bohr2nm
     deallocate(k)
     deallocate(label)
     deallocate(mass)

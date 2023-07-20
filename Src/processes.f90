@@ -1909,7 +1909,7 @@ contains
 
   end subroutine
 
-  ! Wrapper around 4ph RTA subroutines with 3oh subroutines that splits the work among processors.
+  ! Wrapper around 4ph RTA subroutines with 3ph subroutines that splits the work among processors.
   subroutine RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
        Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,rate_scatt_4ph,rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
        WP4_plusplus,WP4_plusminus,WP4_minusminus,&
