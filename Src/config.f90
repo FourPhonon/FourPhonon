@@ -4,6 +4,7 @@
 !  Copyright (C) 2021 Wu Li <wu.li.phys2011@gmail.com>
 !  Copyright (C) 2021 Tianli Feng <Tianli.Feng2011@gmail.com>
 !  Copyright (C) 2021 Xiulin Ruan <ruan@purdue.edu>
+!  Copyright (C) 2023 Ziqi Guo <gziqi@purdue.edu>
 !
 !  ShengBTE, a solver for the Boltzmann Transport Equation for phonons
 !  Copyright (C) 2012-2017 Wu Li <wu.li.phys2011@gmail.com>
@@ -44,8 +45,13 @@ module config
   integer(kind=4) :: maxiter,nticks
   real(kind=8) :: T,scalebroad,rmin,rmax,dr,eps
   real(kind=8) :: T_min,T_max,T_step,omega_max,Length
+   ! ----------- sampling method add -----------
+  integer(kind=4) :: num_sample_process_3ph,num_sample_process_3ph_phase_space, num_sample_process_4ph, num_sample_process_4ph_phase_space
   namelist /parameters/ T,scalebroad,rmin,rmax,dr,maxiter,nticks,eps,&
-           T_min,T_max,T_step,omega_max,Length
+           T_min,T_max,T_step,omega_max,Length, &
+           num_sample_process_3ph,num_sample_process_3ph_phase_space, num_sample_process_4ph,num_sample_process_4ph_phase_space
+   ! ----------- end sampling method add -----------
+
   logical :: nonanalytic,convergence,isotopes,autoisotopes,nanowires,onlyharmonic,espresso,normal,umklapp,&
              four_phonon,four_phonon_iteration,nanolength
   namelist /flags/ nonanalytic,convergence,isotopes,autoisotopes,&
@@ -150,6 +156,13 @@ contains
     eps=1e-5
     omega_max=1.d100
     Length=1
+   ! ----------- sampling method add -----------
+    num_sample_process_3ph = -1
+    num_sample_process_3ph_phase_space = -1
+    num_sample_process_4ph = -1
+    num_sample_process_4ph_phase_space = -1
+   ! ----------- end sampling method add -----------
+
     read(1,nml=parameters)
     if ((T.le.0.).and.(T_min.le.0)) then
        if(myid.eq.0)write(error_unit,*) "Error: T must be >0 K"
@@ -197,7 +210,27 @@ contains
        call MPI_BARRIER(MPI_COMM_WORLD,ierr)
        call MPI_FINALIZE(ierr)
     end if
+   ! ----------- sampling method add -----------
+    if(((four_phonon.eq. .false.) .and. (num_sample_process_4ph.gt.0)) .or.((four_phonon.eq. .false.) .and. (num_sample_process_4ph_phase_space.gt.0)) ) then
+      if(myid.eq.0)write(error_unit,*) "Error: four_phonon=.false. but num_sample_process_4ph.gt.0 or num_sample_process_4ph_phase_space.gt.0. "
+      call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+      call MPI_FINALIZE(ierr)
+    end if
+
+    if(((convergence.eq. .true.) .and. (num_sample_process_3ph.gt.0)) ) then
+      if(myid.eq.0)write(error_unit,*) "Error: convergence=.true. but num_sample_process_3ph.gt.0. "
+      call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+      call MPI_FINALIZE(ierr)
+    end if
+
+    if(((four_phonon_iteration.eq. .true.) .and. (num_sample_process_4ph.gt.0)) ) then
+      if(myid.eq.0)write(error_unit,*) "Error: four_phonon_iteration=.true. but num_sample_process_4ph.gt.0. "
+      call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+      call MPI_FINALIZE(ierr)
+    end if
+   ! ----------- end sampling method add -----------
     close(1)
+
 
     nptk=product(ngrid)
     cgrid=nptk**(1./3.)

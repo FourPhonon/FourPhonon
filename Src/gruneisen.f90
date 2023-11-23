@@ -4,6 +4,7 @@
 !  Copyright (C) 2021 Wu Li <wu.li.phys2011@gmail.com>
 !  Copyright (C) 2021 Tianli Feng <Tianli.Feng2011@gmail.com>
 !  Copyright (C) 2021 Xiulin Ruan <ruan@purdue.edu>
+!  Copyright (C) 2023 Ziqi Guo gziqi@purdue.edu
 !
 !  ShengBTE, a solver for the Boltzmann Transport Equation for phonons
 !  Copyright (C) 2012-2017 Wu Li <wu.li.phys2011@gmail.com>

@@ -4,6 +4,7 @@
 !  Copyright (C) 2021 Wu Li <wu.li.phys2011@gmail.com>
 !  Copyright (C) 2021 Tianli Feng <Tianli.Feng2011@gmail.com>
 !  Copyright (C) 2021 Xiulin Ruan <ruan@purdue.edu>
+!  Copyright (C) 2023 Ziqi Guo <gziqi@purdue.edu>
 !
 !  ShengBTE, a solver for the Boltzmann Transport Equation for phonons
 !  Copyright (C) 2012-2017 Wu Li <wu.li.phys2011@gmail.com>
@@ -107,6 +108,10 @@ program ShengBTE
   character(len=30) :: tempstring1,tempstring2,tempstring3
 
   real(kind=8) :: dnrm2
+
+   ! ----------- sampling method add -----------
+  character(len=4) strmyid
+   ! ----------- end sampling method add -----------
 
   call MPI_INIT_thread(MPI_THREAD_FUNNELED,PROVIDED,ierr)
   call MPI_COMM_RANK(MPI_COMM_WORLD,myid,ierr)
@@ -396,6 +401,11 @@ program ShengBTE
   allocate(Pspace_plus_total(Nbands,Nlist))
   allocate(Pspace_minus_total(Nbands,Nlist))
 
+   ! ----------- sampling method add -----------
+   if(myid.eq.0) then
+      if(num_sample_process_3ph_phase_space.gt.0) write(*,*) "Info: num_sample_process_3ph_phase_space = ", num_sample_process_3ph_phase_space
+   end if
+   ! ----------- sampling method add -----------
 
   call NP_driver(energy,velocity,Nlist,List,IJK,&
        N_plus,Pspace_plus_total,N_minus,Pspace_minus_total)
@@ -407,7 +417,14 @@ program ShengBTE
   if(myid.eq.0)write(*,*) "Info: Ntotal_minus =",Ntotal_minus
   if (four_phonon) then
     if(myid.eq.0.and.four_phonon)write(*,*) "Info: Start calculating 4ph allowed processes"
-    call NP_driver_4ph(energy,velocity,Nlist,List,IJK,&
+   ! ----------- sampling method add -----------
+      if(myid.eq.0) then
+         if(num_sample_process_4ph_phase_space.gt.0) write(*,*) "Info: num_sample_process_4ph_phase_space = ", num_sample_process_4ph_phase_space
+      end if
+   ! ----------- end sampling method add -----------
+   
+   
+       call NP_driver_4ph(energy,velocity,Nlist,List,IJK,&
          N_plusplus,Pspace_plusplus_total,N_plusminus,&
          Pspace_plusminus_total,N_minusminus,Pspace_minusminus_total)
     Ntotal_plusplus=sum(N_plusplus)
@@ -520,12 +537,13 @@ program ShengBTE
             call change_directory(trim(adjustl(path))//C_NULL_CHAR)
          end if
          call RTA_driver(energy,velocity,eigenvect,Nlist,List,IJK,&
-               Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,rate_scatt,&
-               rate_scatt_plus,rate_scatt_minus,Pspace_plus_total,Pspace_minus_total,&
+               Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
+               rate_scatt,rate_scatt_plus,rate_scatt_minus,Pspace_plus_total,Pspace_minus_total,&
                rate_scatt_plus_N,rate_scatt_minus_N,rate_scatt_plus_U,rate_scatt_minus_U)
          if (four_phonon) then ! four-phonon function
             call RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
-                  Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,rate_scatt_4ph,&
+                  Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
+                  rate_scatt_4ph,&
                   rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
                   Pspace_plusplus_total,Pspace_plusminus_total,Pspace_minusminus_total,&
                   rate_scatt_plusplus_N,rate_scatt_plusminus_N,rate_scatt_minusminus_N,&
@@ -685,6 +703,16 @@ program ShengBTE
      end if
   end if
   if (myid.eq.0) print*, "Info: start calculating kappa"
+
+
+   ! ----------- sampling method add -----------
+   write(strmyid,'(I4)') myid
+   if (myid.eq.0) then
+      write(*,*) 'Info: numprocs: ', numprocs
+   end if
+   ! ----------- end sampling method add -----------
+
+
   do Tcounter=1,CEILING((T_max-T_min)/T_step)+1
      T=T_min+(Tcounter-1)*T_step
      if ((T.gt.T_max).and.(T.lt.(T_max+1.d0)))  exit
@@ -705,26 +733,45 @@ program ShengBTE
         ! tag four_phonon_iteration is reserved here
         if (four_phonon.and.four_phonon_iteration.eq. .false.) then
           call RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
-                Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,rate_scatt_4ph,&
+                Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
+                rate_scatt_4ph,&
                 rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
                 Pspace_plusplus_total,Pspace_plusminus_total,Pspace_minusminus_total,&
                 rate_scatt_plusplus_N,rate_scatt_plusminus_N,rate_scatt_minusminus_N,&
                 rate_scatt_plusplus_U,rate_scatt_plusminus_U,rate_scatt_minusminus_U)
         end if
      else
+     
+         ! ----------- sampling method add -----------
+         if(myid.eq.0) then
+            if(num_sample_process_3ph.gt.0) write(*,*) "Info: num_sample_process_3ph = ", num_sample_process_3ph
+         end if
+         ! ----------- end sampling method add -----------
+
         call RTA_driver(energy,velocity,eigenvect,Nlist,List,IJK,&
-             Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,rate_scatt,rate_scatt_plus,&
+             Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
+             rate_scatt,rate_scatt_plus,&
              rate_scatt_minus,Pspace_plus_total,Pspace_minus_total,&
              rate_scatt_plus_N,rate_scatt_minus_N,rate_scatt_plus_U,rate_scatt_minus_U)
         if (four_phonon) then
+        
+            ! ----------- sampling method add -----------
+            if(myid.eq.0) then
+               if(num_sample_process_4ph.gt.0) write(*,*) "Info: num_sample_process_4ph = ", num_sample_process_4ph
+            end if
+            ! ----------- end sampling method add -----------
+
           call RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
-              Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,rate_scatt_4ph,&
+              Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
+              rate_scatt_4ph,&
               rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
               Pspace_plusplus_total,Pspace_plusminus_total,Pspace_minusminus_total,&
               rate_scatt_plusplus_N,rate_scatt_plusminus_N,rate_scatt_minusminus_N,&
               rate_scatt_plusplus_U,rate_scatt_plusminus_U,rate_scatt_minusminus_U)
         end if
      end if
+
+
 
      
      if(convergence) then
