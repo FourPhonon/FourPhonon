@@ -1,9 +1,9 @@
-!  FourPhonon: An extension module to ShengBTE for computing four-phonon scattering rates and thermal conductivity
-!  Copyright (C) 2021 Zherui Han <zrhan@purdue.edu>
+!  FourPhonon: An extension module to ShengBTE for computing four phonon anharmonicity
+!  Copyright (C) 2021-2023 Zherui Han <zrhan@purdue.edu>
 !  Copyright (C) 2021 Xiaolong Yang <xiaolongyang1990@gmail.com>
 !  Copyright (C) 2021 Wu Li <wu.li.phys2011@gmail.com>
 !  Copyright (C) 2021 Tianli Feng <Tianli.Feng2011@gmail.com>
-!  Copyright (C) 2021 Xiulin Ruan <ruan@purdue.edu>
+!  Copyright (C) 2021-2023 Xiulin Ruan <ruan@purdue.edu>
 !  Copyright (C) 2023 Ziqi Guo <gziqi@purdue.edu>
 ! 
 !  ShengBTE, a solver for the Boltzmann Transport Equation for phonons
