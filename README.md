@@ -9,6 +9,7 @@
 - Tianli Feng [Tianli.Feng2011@gmail.com](mailto:Tianli.Feng2011@gmail.com)
 - Xiulin Ruan [ruan@purdue.edu](mailto:ruan@purdue.edu)
 - Ziqi Guo [gziqi@purdue.edu](mailto:gziqi@purdue.edu)
+- Guang Lin [guanglin@purdue.edu](mailto:guanglin@purdue.edu)
 
 References: please refer to our [GitHub homepage](https://github.com/FourPhonon)
 
