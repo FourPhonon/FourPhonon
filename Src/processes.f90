@@ -1,10 +1,12 @@
-!  FourPhonon: An extension module to ShengBTE for computing four-phonon scattering rates and thermal conductivity
-!  Copyright (C) 2021 Zherui Han <zrhan@purdue.edu>
+!  FourPhonon: An extension module to ShengBTE for computing four phonon anharmonicity
+!  Copyright (C) 2021-2023 Zherui Han <zrhan@purdue.edu>
 !  Copyright (C) 2021 Xiaolong Yang <xiaolongyang1990@gmail.com>
 !  Copyright (C) 2021 Wu Li <wu.li.phys2011@gmail.com>
 !  Copyright (C) 2021 Tianli Feng <Tianli.Feng2011@gmail.com>
-!  Copyright (C) 2021 Xiulin Ruan <ruan@purdue.edu>
-!
+!  Copyright (C) 2021-2023 Xiulin Ruan <ruan@purdue.edu>
+!  Copyright (C) 2023 Ziqi Guo <gziqi@purdue.edu>
+!  Copyright (C) 2023 Guang Lin <guanglin@purdue.edu>
+! 
 !  ShengBTE, a solver for the Boltzmann Transport Equation for phonons
 !  Copyright (C) 2012-2017 Wu Li <wu.li.phys2011@gmail.com>
 !  Copyright (C) 2012-2017 Jesús Carrete Montaña <jcarrete@gmail.com>
@@ -786,6 +788,7 @@ contains
     deallocate(Gamma_minus_reduce)
   end subroutine Ind_driver
 
+ 
   ! Compute the number of allowed absorption processes and their contribution
   ! to phase space.
   subroutine NP_plus(mm,energy,velocity,Nlist,List,IJK,N_plus,P_plus)
@@ -965,6 +968,228 @@ contains
     end if
   end subroutine NP_minus
 
+
+  ! Compute the number of allowed absorption processes and their contribution
+  ! to phase space using sampling method.
+  subroutine NP_plus_sample(mm,energy,velocity,Nlist,List,IJK,N_plus,P_plus)
+    implicit none
+
+    integer(kind=4),intent(in) :: mm,NList,List(Nlist),IJK(3,nptk)
+    real(kind=8),intent(in) :: energy(nptk,Nbands),velocity(nptk,Nbands,3)
+    integer(kind=4),intent(out) :: N_plus
+    real(kind=8),intent(out) :: P_plus
+
+    integer(kind=4) :: q(3),qprime(3),qdprime(3),i,j,k
+    integer(kind=4) :: Index_N(0:(Ngrid(1)-1),0:(Ngrid(2)-1),0:(Ngrid(3)-1))
+    integer(kind=4) :: ii,jj,kk,ll,ss
+    real(kind=8) :: sigma
+    real(kind=8) :: omega,omegap,omegadp
+    real(kind=8) :: shortest_q(3),shortest_qprime(3),shortest_qdprime(3)
+
+   ! ----------- sampling method add -----------
+    integer(kind=4) :: nn, rand_num, iter
+    real :: rand_matrix(num_sample_process_3ph_phase_space),rand
+   ! ----------- end sampling method add -----------
+
+    do ii=0,Ngrid(1)-1        ! G1 direction
+       do jj=0,Ngrid(2)-1     ! G2 direction
+          do kk=0,Ngrid(3)-1  ! G3 direction
+             Index_N(ii,jj,kk)=(kk*Ngrid(2)+jj)*Ngrid(1)+ii+1
+          end do
+       end do
+    end do
+    N_plus=0
+    P_plus=0.d00
+    i=modulo(mm-1,Nbands)+1
+    ll=int((mm-1)/Nbands)+1
+    q=IJK(:,list(ll))
+    omega=energy(list(ll),i)
+    if(omega.ne.0) then
+      ! ----------- sampling method add -----------
+      ! Note: 
+      ! phonon1: ll is momentum [1:nptk], i is energy [1:Nband], ll and i are calculated from mm, mm is phonon number [1, Nbands*NList]
+      ! phonon2: ii is momentum [1:nptk], j is energy [1:Nband]
+      ! phonon3: ss is momentum [1:nptk], k is energy [1:Nband]
+      call random_seed()
+      call random_number(rand_matrix)
+      do iter=1,num_sample_process_3ph_phase_space
+         rand = rand_matrix(iter-1)
+         rand_num = FLOOR(INT(Nbands*nptk*Nbands)*rand)+1  ! generate random integer in [1,Nbands*nptk*Nbands]
+         nn = int((rand_num-1)/Nbands)+1 ! get a random phonon number for 2nd phonon
+         k = modulo(rand_num-1,Nbands)+1 ! phonon3 branch [1:Nband]
+         j=modulo(nn-1,Nbands)+1 ! phonon2 branch [1:Nband]
+         ii=int((nn-1)/Nbands)+1 ! phonon2 momentum [1:nptk]
+      ! ----------- end sampling method add -----------
+         qprime=IJK(:,ii)
+         omegap=energy(ii,j)
+         !--------BEGIN absorption process-----------
+         qdprime=q+qprime
+         qdprime=modulo(qdprime,Ngrid)
+         ss=Index_N(qdprime(1),qdprime(2),qdprime(3)) ! phonon3 momentum [1:nptk]
+         omegadp=energy(ss,k)
+         if ((omegap.ne.0).and.(omegadp.ne.0)) then
+            sigma=scalebroad*base_sigma(&
+               velocity(ii,j,:)-&
+               velocity(ss,k,:))
+            if(abs(omega+omegap-omegadp).le.(2.d0*sigma)) then
+
+            !-------- call ws_cell function to distinguish normal and
+            !umklapp processes
+            call ws_cell(q,shortest_q)
+            call ws_cell(qprime,shortest_qprime)
+            call ws_cell(qdprime,shortest_qdprime)
+            !----------------------Normal process condition
+            if (normal) then
+            if (abs(shortest_q(1)+shortest_qprime(1)-shortest_qdprime(1))<1e-10.and.&
+               abs(shortest_q(2)+shortest_qprime(2)-shortest_qdprime(2))<1e-10.and.&
+               abs(shortest_q(3)+shortest_qprime(3)-shortest_qdprime(3))<1e-10) then
+            !-----------------------------------------------------------
+               N_plus=N_plus+1
+               P_plus=P_plus+&
+                  exp(-(omega+omegap-omegadp)**2/(sigma**2))/&
+                  (sigma*sqrt(Pi)*nptk**2*nbands**3)
+            end if
+            !---------------------Umklapp process condition
+            else if (umklapp) then
+            if (abs(shortest_q(1)+shortest_qprime(1)-shortest_qdprime(1))>1e-10.or.&
+               abs(shortest_q(2)+shortest_qprime(2)-shortest_qdprime(2))>1e-10.or.&
+               abs(shortest_q(3)+shortest_qprime(3)-shortest_qdprime(3))>1e-10) then
+            !-----------------------------------------------------------
+               N_plus=N_plus+1
+               P_plus=P_plus+&
+                  exp(-(omega+omegap-omegadp)**2/(sigma**2))/&
+                  (sigma*sqrt(Pi)*nptk**2*nbands**3)
+            end if
+            !-------------------total scattering process
+            else
+            !-----------------------------------------------------------
+               N_plus=N_plus+1
+               P_plus=P_plus+&
+                  exp(-(omega+omegap-omegadp)**2/(sigma**2))/&
+                  (sigma*sqrt(Pi)*nptk**2*nbands**3)
+            end if
+            end if
+         end if
+         !--------END absorption process-------------!
+      end do ! iter
+    end if
+   ! ----------- sampling method add -----------
+    N_plus = INT(REAL(N_plus)/num_sample_process_3ph_phase_space*Nbands*nptk*Nbands)   ! must first do the division and then do the multiplication. Otherwise it will overflow the max of int32
+    P_plus = P_plus*Nbands*nptk*Nbands/num_sample_process_3ph_phase_space
+   ! ----------- end sampling method add -----------
+
+  end subroutine NP_plus_sample
+
+  ! Same as NP_plus, but for emission processes using sampling method.
+  subroutine NP_minus_sample(mm,energy,velocity,Nlist,List,IJK,N_minus,P_minus)
+    implicit none
+
+    integer(kind=4),intent(in) :: mm,NList,List(Nlist),IJK(3,nptk)
+    real(kind=8),intent(in) :: energy(nptk,Nbands),velocity(nptk,Nbands,3)
+    integer(kind=4),intent(out) :: N_minus
+    real(kind=8),intent(out) :: P_minus
+
+    integer(kind=4) :: q(3),qprime(3),qdprime(3),i,j,k
+    integer(kind=4) :: Index_N(0:(Ngrid(1)-1),0:(Ngrid(2)-1),0:(Ngrid(3)-1))
+    integer(kind=4) :: ii,jj,kk,ll,ss
+    real(kind=8) :: sigma
+    real(kind=8) :: omega,omegap,omegadp
+    real(kind=8) :: shortest_q(3),shortest_qprime(3),shortest_qdprime(3)
+
+   ! ----------- sampling method add -----------
+    integer(kind=4) :: nn, rand_num, iter
+    real :: rand_matrix(num_sample_process_3ph_phase_space),rand
+   ! ----------- end sampling method add -----------
+
+    do ii=0,Ngrid(1)-1        ! G1 direction
+       do jj=0,Ngrid(2)-1     ! G2 direction
+          do kk=0,Ngrid(3)-1  ! G3 direction
+             Index_N(ii,jj,kk)=(kk*Ngrid(2)+jj)*Ngrid(1)+ii+1
+          end do
+       end do
+    end do
+    N_minus=0
+    P_minus=0.d00
+    i=modulo(mm-1,Nbands)+1
+    ll=int((mm-1)/Nbands)+1
+    q=IJK(:,list(ll))
+    omega=energy(list(ll),i)
+    if(omega.ne.0) then
+      ! ----------- sampling method add -----------
+      ! Note: 
+      ! phonon1: ll is momentum [1:nptk], i is energy [1:Nband], ll and i are calculated from mm, mm is phonon number [1, Nbands*NList]
+      ! phonon2: ii is momentum [1:nptk], j is energy [1:Nband]
+      ! phonon3: ss is momentum [1:nptk], k is energy [1:Nband]
+      call random_seed()
+      call random_number(rand_matrix)
+      do iter=1,num_sample_process_3ph_phase_space
+         rand = rand_matrix(iter-1)
+         rand_num = FLOOR(INT(Nbands*nptk*Nbands)*rand)+1  ! generate random integer in [1,Nbands*nptk*Nbands]
+         nn = int((rand_num-1)/Nbands)+1 ! get a random phonon number for 2nd phonon
+         k = modulo(rand_num-1,Nbands)+1 ! phonon3 branch [1:Nband]
+         j=modulo(nn-1,Nbands)+1 ! phonon2 branch [1:Nband]
+         ii=int((nn-1)/Nbands)+1 ! phonon2 momentum [1:nptk]
+      ! ----------- end sampling method add -----------
+         qprime=IJK(:,ii)
+         omegap=energy(ii,j)
+         !--------BEGIN emission process-----------
+         qdprime=q-qprime
+         qdprime=modulo(qdprime,Ngrid)
+         ss=Index_N(qdprime(1),qdprime(2),qdprime(3)) ! phonon3 momentum [1:nptk]
+         omegadp=energy(ss,k)
+         if ((omegap.ne.0).and.(omegadp.ne.0)) then
+            sigma=scalebroad*base_sigma(&
+               velocity(ii,j,:)-&
+               velocity(ss,k,:))
+            if(abs(omega-omegap-omegadp).le.(2.d0*sigma)) then
+            !-------- call ws_cell function to distinguish normal and
+            !umklapp processes
+            call ws_cell(q,shortest_q)
+            call ws_cell(qprime,shortest_qprime)
+            call ws_cell(qdprime,shortest_qdprime)
+            !----------------------Normal process condition
+            if (normal) then
+            if (abs(shortest_q(1)-shortest_qprime(1)-shortest_qdprime(1))<1e-10.and.&
+               abs(shortest_q(2)-shortest_qprime(2)-shortest_qdprime(2))<1e-10.and.&
+               abs(shortest_q(3)-shortest_qprime(3)-shortest_qdprime(3))<1e-10) then
+            !-----------------------------------------------------------------------------
+               N_minus=N_minus+1
+               P_minus=P_minus+&
+                  exp(-(omega-omegap-omegadp)**2/(sigma**2))/&
+                  (sigma*sqrt(Pi)*nptk**2*nbands**3)
+            end if
+            !--------------------Umklapp process condition
+            else if (umklapp) then
+            if (abs(shortest_q(1)-shortest_qprime(1)-shortest_qdprime(1))>1e-10.or.&
+               abs(shortest_q(2)-shortest_qprime(2)-shortest_qdprime(2))>1e-10.or.&
+               abs(shortest_q(3)-shortest_qprime(3)-shortest_qdprime(3))>1e-10) then
+            !-----------------------------------------------------------------------------
+               N_minus=N_minus+1
+               P_minus=P_minus+&
+                  exp(-(omega-omegap-omegadp)**2/(sigma**2))/&
+                  (sigma*sqrt(Pi)*nptk**2*nbands**3)
+            end if
+            !--------------------total scattering process
+            else
+            !-----------------------------------------------------------------------------
+               N_minus=N_minus+1
+               P_minus=P_minus+&
+                  exp(-(omega-omegap-omegadp)**2/(sigma**2))/&
+                  (sigma*sqrt(Pi)*nptk**2*nbands**3)
+            end if
+            end if
+         end if
+      !--------END emission process-------------!
+      end do ! iter
+    end if
+   ! ----------- end sampling method add -----------
+    N_minus = INT(REAL(N_minus)/num_sample_process_3ph_phase_space*Nbands*nptk*Nbands)   ! must first do the division and then do the multiplication. Otherwise it will overflow the max of int32
+    P_minus = P_minus*Nbands*nptk*Nbands/num_sample_process_3ph_phase_space
+   ! ----------- end sampling method add -----------
+
+  end subroutine NP_minus_sample
+
+ 
   ! Wrapper around NP_plus and NP_minus that splits the work among processors.
   subroutine NP_driver(energy,velocity,Nlist,List,IJK,&
        N_plus,Pspace_plus_total,N_minus,Pspace_minus_total)
@@ -999,10 +1224,17 @@ contains
 
     do mm=myid+1,Nbands*Nlist,numprocs
        if (energy(List(int((mm-1)/Nbands)+1),modulo(mm-1,Nbands)+1).le.omega_max) then
-          call NP_plus(mm,energy,velocity,Nlist,List,IJK,&
+         if (num_sample_process_3ph_phase_space==-1) then ! do not sample
+            call NP_plus(mm,energy,velocity,Nlist,List,IJK,&
                N_plus_reduce(mm),Pspace_plus_reduce(mm))
-          call NP_minus(mm,energy,velocity,Nlist,List,IJK,&
+            call NP_minus(mm,energy,velocity,Nlist,List,IJK,&
                N_minus_reduce(mm),Pspace_minus_reduce(mm))
+         else ! do sampling method
+            call NP_plus_sample(mm,energy,velocity,Nlist,List,IJK,&
+               N_plus_reduce(mm),Pspace_plus_reduce(mm))
+            call NP_minus_sample(mm,energy,velocity,Nlist,List,IJK,&
+               N_minus_reduce(mm),Pspace_minus_reduce(mm))
+         endif
        endif
     end do
 
@@ -1015,6 +1247,7 @@ contains
     call MPI_ALLREDUCE(Pspace_minus_reduce,Pspace_minus_total,Nbands*Nlist,&
          MPI_DOUBLE_PRECISION,MPI_SUM,MPI_COMM_WORLD,mm)
   end subroutine NP_driver
+
 
   ! RTA-only version of Ind_plus.
   subroutine RTA_plus(mm,energy,velocity,eigenvect,Nlist,List,&
@@ -1217,6 +1450,254 @@ contains
 
   end subroutine RTA_minus
 
+  ! RTA-only version of Ind_plus using sampling method.
+  subroutine RTA_plus_sample(mm,energy,velocity,eigenvect,Nlist,List,&
+       Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,IJK,&
+       Gamma_plus,WP3_plus,Gamma_plus_N,Gamma_plus_U)
+    implicit none
+
+    integer(kind=4),intent(in) :: mm,NList,List(Nlist),IJK(3,nptk),Ntri
+    integer(kind=4),intent(in) :: Index_i(Ntri),Index_j(Ntri),Index_k(Ntri)
+    real(kind=8),intent(in) :: energy(nptk,Nbands),velocity(nptk,Nbands,3)
+    real(kind=8),intent(in) :: Phi(3,3,3,Ntri),R_j(3,Ntri),R_k(3,Ntri)
+    complex(kind=8),intent(in) :: eigenvect(nptk,Nbands,Nbands)
+    real(kind=8),intent(out) :: Gamma_plus,WP3_plus
+    real(kind=8),intent(out) :: Gamma_plus_N,Gamma_plus_U
+    real(kind=8) :: shortest_q(3),shortest_qprime(3),shortest_qdprime(3)
+
+    integer(kind=4) :: q(3),qprime(3),qdprime(3),i,j,k
+    integer(kind=4) :: Index_N(0:(Ngrid(1)-1),0:(Ngrid(2)-1),0:(Ngrid(3)-1))
+    integer(kind=4) :: ii,jj,kk,ll,ss
+    real(kind=8) :: sigma
+    real(kind=8) :: fBEprime,fBEdprime
+    real(kind=8) :: omega,omegap,omegadp
+    real(kind=8) :: realq(3),realqprime(3),realqdprime(3)
+    real(kind=8) :: WP3
+    complex(kind=8) :: Vp
+
+   ! ----------- sampling method add -----------
+    integer(kind=4) :: nn, rand_num, iter
+    real :: rand_matrix(num_sample_process_3ph),rand
+   ! ----------- end sampling method add -----------
+
+    Gamma_plus=0.d00
+    Gamma_plus_N=0.d00
+    Gamma_plus_U=0.d00
+
+    WP3_plus=0.d00
+  
+    do ii=0,Ngrid(1)-1
+       do jj=0,Ngrid(2)-1
+          do kk=0,Ngrid(3)-1
+             Index_N(ii,jj,kk)=(kk*Ngrid(2)+jj)*Ngrid(1)+ii+1
+          end do
+       end do
+    end do
+    i=modulo(mm-1,Nbands)+1
+    ll=int((mm-1)/Nbands)+1
+    q=IJK(:,list(ll))
+    realq=matmul(rlattvec,q/dble(ngrid))
+    omega=energy(list(ll),i)
+    if(omega.ne.0) then
+
+      ! ----------- sampling method add -----------
+      ! Note: 
+      ! phonon1: ll is momentum [1:nptk], i is energy [1:Nband], ll and i are calculated from mm, mm is phonon number [1, Nbands*NList]
+      ! phonon2: ii is momentum [1:nptk], j is energy [1:Nband]
+      ! phonon3: ss is momentum [1:nptk], k is energy [1:Nband]
+      call random_seed()
+      call random_number(rand_matrix)
+      do iter=1,num_sample_process_3ph
+         rand = rand_matrix(iter-1)
+         rand_num = FLOOR(INT(Nbands*nptk*Nbands)*rand)+1  ! generate random integer in [1,Nbands*nptk*Nbands]
+         nn = int((rand_num-1)/Nbands)+1 ! get a random phonon number for 2nd phonon
+         k = modulo(rand_num-1,Nbands)+1 ! phonon3 branch [1:Nband]
+         j=modulo(nn-1,Nbands)+1 ! phonon2 branch [1:Nband]
+         ii=int((nn-1)/Nbands)+1 ! phonon2 momentum [1:nptk]
+      ! ----------- end sampling method add -----------
+
+         qprime=IJK(:,ii)
+         realqprime=matmul(rlattvec,qprime/dble(ngrid))
+         omegap=energy(ii,j)
+         fBEprime=1.d0/(exp(hbar*omegap/Kb/T)-1.D0)
+         !--------BEGIN absorption process-----------
+         qdprime=q+qprime
+         qdprime=modulo(qdprime,Ngrid)
+         realqdprime=matmul(rlattvec,qdprime/dble(ngrid))
+         ss=Index_N(qdprime(1),qdprime(2),qdprime(3)) ! phonon3 momentum [1:nptk]
+         omegadp=energy(ss,k)
+         if ((omegap.ne.0).and.(omegadp.ne.0)) then ! obey energy conservation
+            sigma=scalebroad*base_sigma(&
+               velocity(ii,j,:)-&
+               velocity(ss,k,:))
+            if(abs(omega+omegap-omegadp).le.(2.d0*sigma)) then
+               fBEdprime=1.d0/(exp(hbar*omegadp/Kb/T)-1.D0)
+               WP3=(fBEprime-fBEdprime)*&
+                  exp(-(omega+omegap-omegadp)**2/(sigma**2))/sigma/sqrt(Pi)/&
+                  (omega*omegap*omegadp)
+               WP3_plus=WP3_plus+WP3
+               if (.not.onlyharmonic) then
+               Vp=Vp_plus(i,j,k,list(ll),ii,ss,&
+                  realqprime,realqdprime,eigenvect,&
+                  Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k)
+               Gamma_plus=Gamma_plus+hbarp*pi/4.d0*WP3*abs(Vp)**2
+               !======================Normal and Umklapp scattering===========================
+               !-------- call ws_cell function to distinguish normal and umklapp processes
+               call ws_cell(q,shortest_q)
+               call ws_cell(qprime,shortest_qprime)
+               call ws_cell(qdprime,shortest_qdprime)
+               !----------------------Normal process condition
+               if (abs(shortest_q(1)+shortest_qprime(1)-shortest_qdprime(1))<1e-10.and.&
+                  abs(shortest_q(2)+shortest_qprime(2)-shortest_qdprime(2))<1e-10.and.&
+                  abs(shortest_q(3)+shortest_qprime(3)-shortest_qdprime(3))<1e-10) then
+                  Gamma_plus_N=Gamma_plus_N+hbarp*pi/4.d0*WP3*abs(Vp)**2
+               else
+                  Gamma_plus_U=Gamma_plus_U+hbarp*pi/4.d0*WP3*abs(Vp)**2
+               endif
+               !==============================================================================================
+               endif
+            end if
+         end if ! end energy conservation
+         !--------END absorption process-------------!
+      end do ! iter
+       WP3_plus=WP3_plus/nptk
+    end if
+   ! ----------- sampling method add -----------
+    Gamma_plus = Gamma_plus*Nbands*nptk*Nbands/num_sample_process_3ph
+    Gamma_plus_N = Gamma_plus_N*Nbands*nptk*Nbands/num_sample_process_3ph
+    Gamma_plus_U = Gamma_plus_U*Nbands*nptk*Nbands/num_sample_process_3ph
+    WP3_plus=WP3_plus*Nbands*nptk*Nbands/num_sample_process_3ph
+   ! ----------- end sampling method add -----------
+
+    Gamma_plus=Gamma_plus*5.60626442*1.d8/nptk ! THz
+    Gamma_plus_N=Gamma_plus_N*5.60626442*1.d8/nptk ! THz
+    Gamma_plus_U=Gamma_plus_U*5.60626442*1.d8/nptk ! THz
+  end subroutine RTA_plus_sample
+
+  ! RTA-only version of Ind_minus using sampling method.
+  subroutine RTA_minus_sample(mm,energy,velocity,eigenvect,Nlist,List,&
+       Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,IJK,&
+       Gamma_minus,WP3_minus,Gamma_minus_N,Gamma_minus_U)
+    implicit none
+
+    integer(kind=4),intent(in) :: mm,NList,List(Nlist),IJK(3,nptk),Ntri
+    integer(kind=4),intent(in) :: Index_i(Ntri),Index_j(Ntri),Index_k(Ntri)
+    real(kind=8),intent(in) :: energy(nptk,Nbands),velocity(nptk,Nbands,3)
+    real(kind=8),intent(in) :: Phi(3,3,3,Ntri),R_j(3,Ntri),R_k(3,Ntri)
+    complex(kind=8),intent(in) :: eigenvect(nptk,Nbands,Nbands)
+    real(kind=8),intent(out) :: Gamma_minus,WP3_minus
+    real(kind=8),intent(out) :: Gamma_minus_N,Gamma_minus_U
+    real(kind=8) :: shortest_q(3),shortest_qprime(3),shortest_qdprime(3)
+
+    integer(kind=4) :: q(3),qprime(3),qdprime(3),i,j,k,N_minus_count
+    integer(kind=4) :: Index_N(0:(Ngrid(1)-1),0:(Ngrid(2)-1),0:(Ngrid(3)-1))
+    integer(kind=4) :: ii,jj,kk,ll,ss
+    real(kind=8) :: sigma
+    real(kind=8) :: fBEprime,fBEdprime
+    real(kind=8) ::  omega,omegap,omegadp
+    real(kind=8) :: realqprime(3),realqdprime(3)
+    real(kind=8) :: WP3
+    complex(kind=8) :: Vp
+
+   ! ----------- sampling method add -----------
+    integer(kind=4) :: nn, rand_num, iter
+    real :: rand_matrix(num_sample_process_3ph),rand
+   ! ----------- end sampling method add -----------
+
+    Gamma_minus=0.d00
+    Gamma_minus_N=0.d00
+    Gamma_minus_U=0.d00
+    WP3_minus=0.d00
+
+    do ii=0,Ngrid(1)-1
+       do jj=0,Ngrid(2)-1
+          do kk=0,Ngrid(3)-1
+             Index_N(ii,jj,kk)=(kk*Ngrid(2)+jj)*Ngrid(1)+ii+1
+          end do
+       end do
+    end do
+    N_minus_count=0
+    i=modulo(mm-1,Nbands)+1
+    ll=int((mm-1)/Nbands)+1
+    q=IJK(:,list(ll))
+    omega=energy(list(ll),i)
+    if(omega.ne.0) then
+      ! ----------- sampling method add -----------
+      ! Note: 
+      ! phonon1: ll is momentum [1:nptk], i is energy [1:Nband], ll and i are calculated from mm, mm is phonon number [1, Nbands*NList]
+      ! phonon2: ii is momentum [1:nptk], j is energy [1:Nband]
+      ! phonon3: ss is momentum [1:nptk], k is energy [1:Nband]
+      call random_seed()
+      call random_number(rand_matrix)
+      do iter=1,num_sample_process_3ph
+         rand = rand_matrix(iter-1)
+         rand_num = FLOOR(INT(Nbands*nptk*Nbands)*rand)+1  ! generate random integer in [1,Nbands*nptk*Nbands]
+         nn = int((rand_num-1)/Nbands)+1 ! get a random phonon number for 2nd phonon
+         k = modulo(rand_num-1,Nbands)+1 ! phonon3 branch [1:Nband]
+         j=modulo(nn-1,Nbands)+1 ! phonon2 branch [1:Nband]
+         ii=int((nn-1)/Nbands)+1 ! phonon2 momentum [1:nptk]
+      ! ----------- end sampling method add -----------
+
+         qprime=IJK(:,ii)
+         realqprime=matmul(rlattvec,qprime/dble(ngrid))
+         omegap=energy(ii,j)
+         fBEprime=1.d0/(exp(hbar*omegap/Kb/T)-1.D0)
+         !--------BEGIN emission process-----------
+         qdprime=q-qprime
+         qdprime=modulo(qdprime,Ngrid)
+         realqdprime=matmul(rlattvec,qdprime/dble(ngrid))
+         ss=Index_N(qdprime(1),qdprime(2),qdprime(3)) ! phonon3 momentum [1:nptk]
+         omegadp=energy(ss,k)
+         if ((omegap.ne.0).and.(omegadp.ne.0)) then
+            sigma=scalebroad*base_sigma(&
+               velocity(ii,j,:)-&
+               velocity(ss,k,:))
+            if (abs(omega-omegap-omegadp).le.(2.d0*sigma)) then
+               fBEdprime=1.d0/(exp(hbar*omegadp/Kb/T)-1.D0)
+               WP3=(fBEprime+fBEdprime+1)*&
+                  exp(-(omega-omegap-omegadp)**2/(sigma**2))/sigma/sqrt(Pi)/&
+                  (omega*omegap*omegadp)
+               WP3_minus=WP3_minus+WP3
+               if (.not.onlyharmonic) then
+               Vp=Vp_minus(i,j,k,list(ll),ii,ss,&
+                  realqprime,realqdprime,eigenvect,&
+                  Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k)
+               Gamma_minus=Gamma_minus+hbarp*pi/4.d0*WP3*abs(Vp)**2
+            !---------------------------Normal and Umklapp scattering rates---------------------------
+            !-------- call ws_cell function to distinguish normal and umklapp processes
+            call ws_cell(q,shortest_q)
+            call ws_cell(qprime,shortest_qprime)
+            call ws_cell(qdprime,shortest_qdprime)
+            !----------------------Normal process condition----------------------
+               if (abs(shortest_q(1)-shortest_qprime(1)-shortest_qdprime(1))<1e-10.and.&
+                  abs(shortest_q(2)-shortest_qprime(2)-shortest_qdprime(2))<1e-10.and.&
+                  abs(shortest_q(3)-shortest_qprime(3)-shortest_qdprime(3))<1e-10) then
+                  Gamma_minus_N=Gamma_minus_N+hbarp*pi/4.d0*WP3*abs(Vp)**2
+               else
+                  Gamma_minus_U=Gamma_minus_U+hbarp*pi/4.d0*WP3*abs(Vp)**2
+               endif
+            !==================================================                     
+               endif
+            end if
+         end if ! end energy conservation
+         !--------END emission process-------------
+      end do ! iter
+       WP3_minus=WP3_minus*5.d-1/nptk
+    end if
+
+   ! ----------- sampling method add -----------
+    Gamma_minus = Gamma_minus*Nbands*nptk*Nbands/num_sample_process_3ph
+    Gamma_minus_N = Gamma_minus_N*Nbands*nptk*Nbands/num_sample_process_3ph
+    Gamma_minus_U = Gamma_minus_U*Nbands*nptk*Nbands/num_sample_process_3ph
+    WP3_minus = WP3_minus*Nbands*nptk*Nbands/num_sample_process_3ph
+   ! ----------- end sampling method add -----------
+
+    Gamma_minus=Gamma_minus*5.60626442*1.d8/nptk
+    Gamma_minus_N=Gamma_minus_N*5.60626442*1.d8/nptk
+    Gamma_minus_U=Gamma_minus_U*5.60626442*1.d8/nptk
+
+  end subroutine RTA_minus_sample
+
   ! Wrapper around 3ph RTA_plus and RTA_minus that splits the work among processors.
   subroutine RTA_driver(energy,velocity,eigenvect,Nlist,List,IJK,&
        Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,rate_scatt,rate_scatt_plus,rate_scatt_minus,WP3_plus,WP3_minus,&
@@ -1272,19 +1753,37 @@ contains
        i=modulo(mm-1,Nbands)+1
        ll=int((mm-1)/Nbands)+1
        if (energy(List(ll),i).le.omega_max) then
-          call RTA_plus(mm,energy,velocity,eigenvect,Nlist,List,&
-               Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,IJK,&
-               Gamma_plus,WP3_plus_reduce(mm),&
-               Gamma_plus_N,Gamma_plus_U)
-          rate_scatt_plus_reduce(i,ll)=Gamma_plus
-          rate_scatt_plus_reduce_N(i,ll)=Gamma_plus_N
-          rate_scatt_plus_reduce_U(i,ll)=Gamma_plus_U
-          call RTA_minus(mm,energy,velocity,eigenvect,Nlist,List,&
-               Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,IJK,&
-               Gamma_minus,WP3_minus_reduce(mm),Gamma_minus_N,Gamma_minus_U)
-          rate_scatt_minus_reduce(i,ll)=Gamma_minus*5.D-1
-          rate_scatt_minus_reduce_N(i,ll)=Gamma_minus_N*5.D-1
-          rate_scatt_minus_reduce_U(i,ll)=Gamma_minus_U*5.D-1
+         if (num_sample_process_3ph==-1) then ! do not sample
+            call RTA_plus(mm,energy,velocity,eigenvect,Nlist,List,&
+                  Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,IJK,&
+                  Gamma_plus,WP3_plus_reduce(mm),&
+                  Gamma_plus_N,Gamma_plus_U)
+            rate_scatt_plus_reduce(i,ll)=Gamma_plus
+            rate_scatt_plus_reduce_N(i,ll)=Gamma_plus_N
+            rate_scatt_plus_reduce_U(i,ll)=Gamma_plus_U
+            call RTA_minus(mm,energy,velocity,eigenvect,Nlist,List,&
+                  Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,IJK,&
+                  Gamma_minus,WP3_minus_reduce(mm),Gamma_minus_N,Gamma_minus_U)
+            rate_scatt_minus_reduce(i,ll)=Gamma_minus*5.D-1
+            rate_scatt_minus_reduce_N(i,ll)=Gamma_minus_N*5.D-1
+            rate_scatt_minus_reduce_U(i,ll)=Gamma_minus_U*5.D-1
+         else ! do sampling method
+            call RTA_plus_sample(mm,energy,velocity,eigenvect,Nlist,List,&
+                  Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,IJK,&
+                  Gamma_plus,WP3_plus_reduce(mm),&
+                  Gamma_plus_N,Gamma_plus_U)
+            rate_scatt_plus_reduce(i,ll)=Gamma_plus
+            rate_scatt_plus_reduce_N(i,ll)=Gamma_plus_N
+            rate_scatt_plus_reduce_U(i,ll)=Gamma_plus_U
+            call RTA_minus_sample(mm,energy,velocity,eigenvect,Nlist,List,&
+                  Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,IJK,&
+                  Gamma_minus,WP3_minus_reduce(mm),Gamma_minus_N,Gamma_minus_U)
+            rate_scatt_minus_reduce(i,ll)=Gamma_minus*5.D-1
+            rate_scatt_minus_reduce_N(i,ll)=Gamma_minus_N*5.D-1
+            rate_scatt_minus_reduce_U(i,ll)=Gamma_minus_U*5.D-1
+
+         endif
+
        endif
     end do
 
@@ -1309,6 +1808,7 @@ contains
   end subroutine RTA_driver
 
   ! Subroutines for 4ph calculations
+
 
   ! Compute the number of allowed four-phonon ++ +- -- processes and
   ! their contribution to phase space.
@@ -1342,35 +1842,41 @@ contains
     if (omega.ne.0) then
       do ii=1,nptk
          do jj=ii,nptk
-            do ss=1,nptk
+            ! do ss=1,nptk    
                qprime=IJK(:,ii)
                qdprime=IJK(:,jj)
-               qtprime=IJK(:,ss)
-               if (all(qtprime.eq.modulo(q+qprime+qdprime,ngrid))) then
-                  do j=1,Nbands
-                     startbranch=1
-                     if(jj==ii) startbranch=j
-                     do k=startbranch,Nbands
-                        do l=1,Nbands
-                           omegap=energy(ii,j)
-                           omegadp=energy(jj,k)
-                           omegatp=energy(ss,l)
-                           if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
-                              sigma=scalebroad*base_sigma(&
-                              -velocity(jj,k,:)+velocity(ss,l,:))
-                              if (abs(omega+omegap+omegadp-omegatp).le.sigma) then
-                                 if (sigma.le.0.001) sigma=1/sqrt(Pi)
-                                 N_plusplus=N_plusplus+1
-                                 P_plusplus=P_plusplus+&
-                                       exp(-(omega+omegap+omegadp-omegatp)**2/(sigma**2))/&
-                                       (sigma*sqrt(Pi)*dble(nptk)**3*nbands**4)
+               ! ----------- fix -----------
+               qtprime=modulo(q+qprime+qdprime,ngrid)
+               ss=Index_N(qtprime(1),qtprime(2),qtprime(3)) ! Instead of iteration, calculate momentem ss from other phonons can have higher efficiency.
+               ! ----------- end fix -----------
+               ! qtprime=IJK(:,ss)
+               if (ss.ge.1) then
+                  ! if (all(qtprime.eq.modulo(q+qprime+qdprime,ngrid))) then
+                     do j=1,Nbands
+                        startbranch=1
+                        if(jj==ii) startbranch=j
+                        do k=startbranch,Nbands
+                           do l=1,Nbands
+                              omegap=energy(ii,j)
+                              omegadp=energy(jj,k)
+                              omegatp=energy(ss,l)
+                              if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
+                                 sigma=scalebroad*base_sigma(&
+                                 -velocity(jj,k,:)+velocity(ss,l,:))
+                                 if (abs(omega+omegap+omegadp-omegatp).le.sigma) then
+                                    if (sigma.le.0.001) sigma=1/sqrt(Pi)
+                                    N_plusplus=N_plusplus+1
+                                    P_plusplus=P_plusplus+&
+                                          exp(-(omega+omegap+omegadp-omegatp)**2/(sigma**2))/&
+                                          (sigma*sqrt(Pi)*dble(nptk)**3*nbands**4)
+                                 end if
                               end if
-                           end if
+                           end do
                         end do
                      end do
-                  end do
+                  ! end if
                end if
-            end do
+            ! end do
          end do
       end do
     end if
@@ -1406,38 +1912,44 @@ contains
       if (omega.ne.0) then
          do ii=1,nptk
             do jj=1,nptk
-               do ss=jj,nptk
+               ! do ss=jj,nptk
                   qprime=IJK(:,ii)
                   qdprime=IJK(:,jj)
-                  qtprime=IJK(:,ss)
-                  if (all(qtprime.eq.modulo(q+qprime-qdprime,ngrid))) then
-                     do j=1,Nbands
-                        do k=1,Nbands
-                           startbranch=1
-                           if(ss==jj) startbranch=k
-                           do l=startbranch,Nbands
-                              omegap=energy(ii,j)
-                              omegadp=energy(jj,k)
-                              omegatp=energy(ss,l)
-                              if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
-                                 sigma=scalebroad*base_sigma(&
-                                 velocity(jj,k,:)-velocity(ss,l,:))
-                                 if ((list(ll).ne.jj .or. i.ne.k).and.(list(ll).ne.ss .or. i.ne.l).and.&
-                                    (ii.ne.jj .or. j.ne.k).and.(ii.ne.ss .or. j.ne.l) )then ! none of the two pairs can be the same
-                                    if (abs(omega+omegap-omegadp-omegatp).le.sigma) then
-                                       if (sigma.le.0.001) sigma=1/sqrt(Pi)
-                                       N_plusminus=N_plusminus+1
-                                       P_plusminus=P_plusminus+&
-                                             exp(-(omega+omegap-omegadp-omegatp)**2/(sigma**2))/&
-                                             (sigma*sqrt(Pi)*dble(nptk)**3*nbands**4) 
+               ! ----------- fix -----------
+                  qtprime=modulo(q+qprime-qdprime,ngrid)
+                  ss=Index_N(qtprime(1),qtprime(2),qtprime(3)) ! Instead of iteration, calculate momentem ss from other phonons can have higher efficiency.
+               ! ----------- end fix -----------
+                  ! qtprime=IJK(:,ss)
+                  if (ss.ge.jj) then
+                     ! if (all(qtprime.eq.modulo(q+qprime-qdprime,ngrid))) then
+                        do j=1,Nbands
+                           do k=1,Nbands
+                              startbranch=1
+                              if(ss==jj) startbranch=k
+                              do l=startbranch,Nbands
+                                 omegap=energy(ii,j)
+                                 omegadp=energy(jj,k)
+                                 omegatp=energy(ss,l)
+                                 if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
+                                    sigma=scalebroad*base_sigma(&
+                                    velocity(jj,k,:)-velocity(ss,l,:))
+                                    if ((list(ll).ne.jj .or. i.ne.k).and.(list(ll).ne.ss .or. i.ne.l).and.&
+                                       (ii.ne.jj .or. j.ne.k).and.(ii.ne.ss .or. j.ne.l) )then ! none of the two pairs can be the same
+                                       if (abs(omega+omegap-omegadp-omegatp).le.sigma) then
+                                          if (sigma.le.0.001) sigma=1/sqrt(Pi)
+                                          N_plusminus=N_plusminus+1
+                                          P_plusminus=P_plusminus+&
+                                                exp(-(omega+omegap-omegadp-omegatp)**2/(sigma**2))/&
+                                                (sigma*sqrt(Pi)*dble(nptk)**3*nbands**4) 
+                                       end if
                                     end if
                                  end if
-                              end if
+                              end do
                            end do
                         end do
-                     end do
+                     ! end if
                   end if
-               end do
+               ! end do
             end do
          end do
        end if
@@ -1473,40 +1985,316 @@ contains
       if (omega.ne.0) then
          do ii=1,nptk
             do jj=ii,nptk
-               do ss=jj,nptk
+               ! do ss=jj,nptk
                   qprime=IJK(:,ii)
                   qdprime=IJK(:,jj)
-                  qtprime=IJK(:,ss)
-                  if (all(qtprime.eq.modulo(q-qprime-qdprime,ngrid))) then
-                     do j=1,Nbands
-                        startbranch=1
-                        if(jj==ii) startbranch=j
-                        do k=startbranch,Nbands
+               ! ----------- fix -----------
+                  qtprime=modulo(q-qprime-qdprime,ngrid)
+                  ss=Index_N(qtprime(1),qtprime(2),qtprime(3)) ! Instead of iteration, calculate momentem ss from other phonons can have higher efficiency.
+               ! ----------- end fix -----------
+                  ! qtprime=IJK(:,ss)
+                  if (ss.ge.jj) then
+                     ! if (all(qtprime.eq.modulo(q-qprime-qdprime,ngrid))) then
+                        do j=1,Nbands
                            startbranch=1
-                           if(ss==jj) startbranch=k
-                           do l=startbranch,Nbands
-                              omegap=energy(ii,j)
-                              omegadp=energy(jj,k)
-                              omegatp=energy(ss,l)
-                              if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
-                                 sigma=scalebroad*base_sigma(&
-                                 velocity(jj,k,:)-velocity(ss,l,:))
-                                 if (abs(omega-omegap-omegadp-omegatp).le.sigma) then
-                                    if (sigma.le.0.001) sigma=1/sqrt(Pi)
-                                    N_minusminus=N_minusminus+1
-                                    P_minusminus=P_minusminus+&
-                                          exp(-(omega-omegap-omegadp-omegatp)**2/(sigma**2))/&
-                                          (sigma*sqrt(Pi)*dble(nptk)**3*nbands**4)
+                           if(jj==ii) startbranch=j
+                           do k=startbranch,Nbands
+                              startbranch=1
+                              if(ss==jj) startbranch=k
+                              do l=startbranch,Nbands
+                                 omegap=energy(ii,j)
+                                 omegadp=energy(jj,k)
+                                 omegatp=energy(ss,l)
+                                 if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
+                                    sigma=scalebroad*base_sigma(&
+                                    velocity(jj,k,:)-velocity(ss,l,:))
+                                    if (abs(omega-omegap-omegadp-omegatp).le.sigma) then
+                                       if (sigma.le.0.001) sigma=1/sqrt(Pi)
+                                       N_minusminus=N_minusminus+1
+                                       P_minusminus=P_minusminus+&
+                                             exp(-(omega-omegap-omegadp-omegatp)**2/(sigma**2))/&
+                                             (sigma*sqrt(Pi)*dble(nptk)**3*nbands**4)
+                                    end if
                                  end if
-                              end if
+                              end do
                            end do
                         end do
-                     end do
+                     ! end if
                   end if
-               end do
+               ! end do
             end do
          end do
        end if
+  end subroutine
+
+  ! Compute the number of allowed four-phonon ++ +- -- processes and
+  ! their contribution to phase space using sampling method.
+   subroutine NP_plusplus_sample(mm,energy,velocity,Nlist,List,IJK,N_plusplus,P_plusplus)
+      implicit none
+
+      integer(kind=4),intent(in) :: mm,NList,List(Nlist),IJK(3,nptk)
+      real(kind=8),intent(in) :: energy(nptk,Nbands),velocity(nptk,Nbands,3)
+      integer(kind=8),intent(out) :: N_plusplus
+      real(kind=8),intent(out) :: P_plusplus
+
+      integer(kind=4) :: q(3),qprime(3),qdprime(3),qtprime(3),i,j,k,l
+      integer(kind=4) :: Index_N(0:(Ngrid(1)-1),0:(Ngrid(2)-1),0:(Ngrid(3)-1))
+      integer(kind=4) :: ii,jj,kk,ll,ss,startbranch
+      real(kind=8) :: sigma
+      real(kind=8) :: omega,omegap,omegadp,omegatp
+
+      ! ----------- sampling method add -----------
+      integer(kind=8) :: rand_num, iter, total_process, matrix_iter, temp_int
+      real :: rand_matrix(num_sample_process_4ph_phase_space*5)
+      total_process = Nbands*nptk*Nbands*nptk*Nbands
+      ! ----------- end sampling method add -----------
+
+      do ii=0,Ngrid(1)-1       ! G1 direction
+      do jj=0,Ngrid(2)-1     ! G2 direction
+         do kk=0,Ngrid(3)-1  ! G3 direction
+            Index_N(ii,jj,kk)=(kk*Ngrid(2)+jj)*Ngrid(1)+ii+1
+         end do
+      end do
+      end do
+      N_plusplus=0
+      P_plusplus=0.d00
+      i=modulo(mm-1,Nbands)+1
+      ll=int((mm-1)/Nbands)+1
+      q=IJK(:,list(ll))
+      omega=energy(list(ll),i)
+      if (omega.ne.0) then
+         ! ----------- sampling method add -----------
+         ! Note: 
+         ! phonon1: ll is momentum [1:nptk], i is energy [1:Nband], ll and i are calculated from mm, mm is phonon number [1, Nbands*NList]
+         ! phonon2: ii is momentum [1:nptk], j is energy [1:Nband]
+         ! phonon3: jj is momentum [ii:nptk], k is energy [startbranch:Nband]
+         ! phonon4: ss is momentum [1:nptk], l is energy [1:Nband]
+         ! total combination: Nbands*nptk*Nbands*nptk*Nbands/2
+         ! j = n + FLOOR((m+1-n)*u)  ! equation to generate random number j in [n,m] from a uniform distribution u in [0,1]
+
+         call random_seed()
+         call random_number(rand_matrix)
+         iter=0
+         do while (iter<=num_sample_process_4ph_phase_space)
+            matrix_iter = (iter-1)*5
+            ii=1+FLOOR(INT(nptk+1-1)*rand_matrix(matrix_iter+1)) ! phonon2 momentum [1:nptk]
+            j=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+2)) ! phonon2 branch [1:Nband]
+            jj=1+FLOOR(INT(nptk+1-1)*rand_matrix(matrix_iter+3)) ! phonon3 momentum [ii:nptk]
+            startbranch=1
+            if(jj==ii) startbranch=j
+            k=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+4)) ! phonon3 branch [startbranch:Nband]
+
+            qprime=IJK(:,ii)
+            qdprime=IJK(:,jj)
+            qtprime=modulo(q+qprime+qdprime,ngrid)
+            ss=Index_N(qtprime(1),qtprime(2),qtprime(3)) ! phonon4 momentum [1:nptk]
+            l=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+5)) ! phonon4 branch [1:Nband]
+            ! ----------- end sampling method add -----------
+
+            if (jj>=ii .AND. k>=startbranch) then ! make sure that the phonon3 is in [ii:nptk], phonon3 branch is in [startbranch:Nband]
+               omegap=energy(ii,j)
+               omegadp=energy(jj,k)
+               omegatp=energy(ss,l)
+               if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
+                  sigma=scalebroad*base_sigma(&
+                  -velocity(jj,k,:)+velocity(ss,l,:))
+                  if (abs(omega+omegap+omegadp-omegatp).le.sigma) then
+                     if (sigma.le.0.001) sigma=1/sqrt(Pi)
+                     N_plusplus=N_plusplus+1
+                     P_plusplus=P_plusplus+&
+                           exp(-(omega+omegap+omegadp-omegatp)**2/(sigma**2))/&
+                           (sigma*sqrt(Pi)*dble(nptk)**3*nbands**4)
+                  end if
+               end if
+            end if ! check momentum and energy conservation
+            iter = iter + 1
+         end do ! iter
+      end if
+      ! ----------- sampling method add -----------
+      N_plusplus = INT(REAL(N_plusplus)/num_sample_process_4ph_phase_space*total_process)    ! must first do the division and then do the multiplication. 
+                                                                                             ! Otherwise it will overflow the max of int32
+      P_plusplus = P_plusplus*total_process/num_sample_process_4ph_phase_space
+      ! ----------- end sampling method add -----------
+   end subroutine
+
+  subroutine NP_plusminus_sample(mm,energy,velocity,Nlist,List,IJK,N_plusminus,P_plusminus)
+      implicit none
+
+      integer(kind=4),intent(in) :: mm,NList,List(Nlist),IJK(3,nptk)
+      real(kind=8),intent(in) :: energy(nptk,Nbands),velocity(nptk,Nbands,3)
+      integer(kind=8),intent(out) :: N_plusminus
+      real(kind=8),intent(out) :: P_plusminus
+
+      integer(kind=4) :: q(3),qprime(3),qdprime(3),qtprime(3),i,j,k,l
+      integer(kind=4) :: Index_N(0:(Ngrid(1)-1),0:(Ngrid(2)-1),0:(Ngrid(3)-1))
+      integer(kind=4) :: ii,jj,kk,ll,ss,startbranch
+      real(kind=8) :: sigma
+      real(kind=8) :: omega,omegap,omegadp,omegatp
+
+      ! ----------- sampling method add -----------
+      integer(kind=8) :: rand_num, iter, total_process, matrix_iter, temp_int
+      real :: rand_matrix(num_sample_process_4ph_phase_space*5)
+      total_process = Nbands*nptk*Nbands*nptk*Nbands
+      ! ----------- end sampling method add -----------
+
+      do ii=0,Ngrid(1)-1     ! G1 direction
+      do jj=0,Ngrid(2)-1     ! G2 direction
+         do kk=0,Ngrid(3)-1  ! G3 direction
+            Index_N(ii,jj,kk)=(kk*Ngrid(2)+jj)*Ngrid(1)+ii+1
+         end do
+      end do
+      end do
+      N_plusminus=0
+      P_plusminus=0.d00
+      i=modulo(mm-1,Nbands)+1
+      ll=int((mm-1)/Nbands)+1
+      q=IJK(:,list(ll))
+      omega=energy(list(ll),i)
+      if (omega.ne.0) then
+      ! ----------- sampling method add -----------
+      ! Note: 
+      ! phonon1: ll is momentum [1:nptk], i is energy [1:Nband], ll and i are calculated from mm, mm is phonon number [1, Nbands*NList]
+      ! phonon2: ii is momentum [1:nptk], j is energy [1:Nband]
+      ! phonon3: jj is momentum [1:nptk], k is energy [1:Nband]
+      ! phonon4: ss is momentum [jj:nptk], l is energy [startbranch:Nband]
+      ! total combination: Nbands*nptk*Nbands*nptk*Nbands/2
+      ! j = n + FLOOR((m+1-n)*u)  ! equation to generate random number j in [n,m] from a uniform distribution u in [0,1]
+
+         call random_seed()
+         call random_number(rand_matrix)
+         iter=0
+         do while (iter<=num_sample_process_4ph_phase_space)
+            matrix_iter = (iter-1)*5
+            ii=1+FLOOR(INT(nptk+1-1)*rand_matrix(matrix_iter+1)) ! phonon2 momentum [1:nptk]
+            j=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+2)) ! phonon2 branch [1:Nband]
+            jj=1+FLOOR(INT(nptk+1-1)*rand_matrix(matrix_iter+3)) ! phonon3 momentum [1:nptk]
+            k=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+4)) ! phonon3 branch [1:Nband]
+
+            qprime=IJK(:,ii)
+            qdprime=IJK(:,jj)
+            qtprime=modulo(q+qprime-qdprime,ngrid)
+            ss=Index_N(qtprime(1),qtprime(2),qtprime(3)) ! phonon4 momentum [1:nptk]
+            ! ----------- end sampling method add -----------
+            startbranch=1
+            if(ss==jj) startbranch=k
+            l=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+5)) ! phonon4 branch [startbranch:Nband]
+            if (ss>=jj .AND. l>=startbranch) then ! make sure that the phonon4 is in [jj:nptk], phonon4 branch is in [startbranch:Nband]
+               omegap=energy(ii,j)
+               omegadp=energy(jj,k)
+               omegatp=energy(ss,l)
+               if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
+                  sigma=scalebroad*base_sigma(&
+                  velocity(jj,k,:)-velocity(ss,l,:))
+                  if ((list(ll).ne.jj .or. i.ne.k).and.(list(ll).ne.ss .or. i.ne.l).and.&
+                     (ii.ne.jj .or. j.ne.k).and.(ii.ne.ss .or. j.ne.l) )then ! none of the two pairs can be the same
+                     if (abs(omega+omegap-omegadp-omegatp).le.sigma) then
+                        if (sigma.le.0.001) sigma=1/sqrt(Pi)
+                        N_plusminus=N_plusminus+1
+                        P_plusminus=P_plusminus+&
+                              exp(-(omega+omegap-omegadp-omegatp)**2/(sigma**2))/&
+                              (sigma*sqrt(Pi)*dble(nptk)**3*nbands**4) 
+                     end if
+                  end if
+               end if
+            end if ! check momentum and energy conservation
+            iter = iter + 1
+         end do ! iter
+       end if
+      N_plusminus = INT(REAL(N_plusminus)/num_sample_process_4ph_phase_space*total_process)    ! must first do the division and then do the multiplication. 
+                                                                                               ! Otherwise it will overflow the max of int32
+      P_plusminus = P_plusminus*total_process/num_sample_process_4ph_phase_space
+  end subroutine
+
+  subroutine NP_minusminus_sample(mm,energy,velocity,Nlist,List,IJK,N_minusminus,P_minusminus)
+      implicit none
+
+      integer(kind=4),intent(in) :: mm,NList,List(Nlist),IJK(3,nptk)
+      real(kind=8),intent(in) :: energy(nptk,Nbands),velocity(nptk,Nbands,3)
+      integer(kind=8),intent(out) :: N_minusminus
+      real(kind=8),intent(out) :: P_minusminus
+
+      integer(kind=4) :: q(3),qprime(3),qdprime(3),qtprime(3),i,j,k,l
+      integer(kind=4) :: Index_N(0:(Ngrid(1)-1),0:(Ngrid(2)-1),0:(Ngrid(3)-1))
+      integer(kind=4) :: ii,jj,kk,ll,ss,startbranch1,startbranch2 ! Ziqi add
+      real(kind=8) :: sigma
+      real(kind=8) :: omega,omegap,omegadp,omegatp
+
+      ! ----------- sampling method add -----------
+      integer(kind=8) :: rand_num, iter, total_process, matrix_iter, temp_int
+      real :: rand_matrix(num_sample_process_4ph_phase_space*5)
+      total_process = Nbands*nptk*Nbands*nptk*Nbands
+      ! ----------- end sampling method add -----------
+
+
+      do ii=0,Ngrid(1)-1        ! G1 direction
+      do jj=0,Ngrid(2)-1     ! G2 direction
+         do kk=0,Ngrid(3)-1  ! G3 direction
+            Index_N(ii,jj,kk)=(kk*Ngrid(2)+jj)*Ngrid(1)+ii+1
+         end do
+      end do
+      end do
+      N_minusminus=0
+      P_minusminus=0.d00
+      i=modulo(mm-1,Nbands)+1
+      ll=int((mm-1)/Nbands)+1
+      q=IJK(:,list(ll))
+      omega=energy(list(ll),i)
+      if (omega.ne.0) then
+         ! ----------- sampling method add -----------
+         ! Note: 
+         ! phonon1: ll is momentum [1:nptk], i is energy [1:Nband], ll and i are calculated from mm, mm is phonon number [1, Nbands*NList]
+         ! phonon2: ii is momentum [1:nptk], j is energy [1:Nband]
+         ! phonon3: jj is momentum [ii:nptk], k is energy [startbranch1:Nband]
+         ! phonon4: ss is momentum [jj:nptk], l is energy [startbranch2:Nband]
+         ! total combination: Nbands*nptk*Nbands*nptk*Nbands/2
+         ! j = n + FLOOR((m+1-n)*u)  ! equation to generate random number j in [n,m] from a uniform distribution u in [0,1]
+
+         call random_seed()
+         call random_number(rand_matrix)
+         iter=0
+         do while (iter<=num_sample_process_4ph_phase_space)
+            matrix_iter = (iter-1)*5
+            ii=1+FLOOR(INT(nptk+1-1)*rand_matrix(matrix_iter+1)) ! phonon2 momentum [1:nptk]
+            j=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+2)) ! phonon2 branch [1:Nband]
+            jj=1+FLOOR(INT(nptk+1-1)*rand_matrix(matrix_iter+3)) ! phonon3 momentum [ii:nptk]
+            startbranch1=1
+            if(jj==ii) startbranch1=j
+            k=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+4)) ! phonon3 branch [startbranch1:Nband]
+
+            qprime=IJK(:,ii)
+            qdprime=IJK(:,jj)
+            qtprime=modulo(q-qprime-qdprime,ngrid)
+            ss=Index_N(qtprime(1),qtprime(2),qtprime(3)) ! phonon4 momentum [jj:nptk]
+            startbranch2=1
+            if(ss==jj) startbranch2=k
+            l=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+5)) ! phonon4 branch [startbranch2:Nband]
+            ! ----------- end sampling method add -----------
+
+            if (jj>=ii .AND. k>=startbranch1 .AND. ss>=jj .AND. l>=startbranch2) then ! make sure that the phonon3 is in [ii:nptk], phonon3 branch is in [startbranch:Nband]
+               omegap=energy(ii,j)
+               omegadp=energy(jj,k)
+               omegatp=energy(ss,l)
+               if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
+                  sigma=scalebroad*base_sigma(&
+                  velocity(jj,k,:)-velocity(ss,l,:))
+                  if (abs(omega-omegap-omegadp-omegatp).le.sigma) then
+                     if (sigma.le.0.001) sigma=1/sqrt(Pi)
+                     N_minusminus=N_minusminus+1
+                     P_minusminus=P_minusminus+&
+                           exp(-(omega-omegap-omegadp-omegatp)**2/(sigma**2))/&
+                           (sigma*sqrt(Pi)*dble(nptk)**3*nbands**4)
+                  end if
+               end if
+            end if ! check momentum and energy conservation
+            iter = iter + 1
+         end do ! iter
+       end if
+
+      ! ----------- sampling method add -----------
+      N_minusminus = INT(REAL(N_minusminus)/num_sample_process_4ph_phase_space*total_process)    ! must first do the division and then do the multiplication. 
+                                                                                                 ! Otherwise it will overflow the max of int32
+      P_minusminus = P_minusminus*total_process/num_sample_process_4ph_phase_space
+      ! ----------- end sampling method add -----------
   end subroutine
 
   ! Wrapper around NP_plusplus,NP_plusminus and NP_minusminus that splits the work among processors.
@@ -1551,9 +2339,17 @@ contains
 
     do mm=myid+1,Nbands*Nlist,numprocs
       if (energy(List(int((mm-1)/Nbands)+1),modulo(mm-1,Nbands)+1).le.omega_max) then
-         call NP_plusplus(mm,energy,velocity,Nlist,List,IJK,N_plusplus_reduce(mm),Pspace_plusplus_reduce(mm))
-         call NP_plusminus(mm,energy,velocity,Nlist,List,IJK,N_plusminus_reduce(mm),Pspace_plusminus_reduce(mm))
-         call NP_minusminus(mm,energy,velocity,Nlist,List,IJK,N_minusminus_reduce(mm),Pspace_minusminus_reduce(mm))
+         if (num_sample_process_4ph_phase_space==-1) then ! do not sample
+            call NP_plusplus(mm,energy,velocity,Nlist,List,IJK,N_plusplus_reduce(mm),Pspace_plusplus_reduce(mm))
+            call NP_plusminus(mm,energy,velocity,Nlist,List,IJK,N_plusminus_reduce(mm),Pspace_plusminus_reduce(mm))
+            call NP_minusminus(mm,energy,velocity,Nlist,List,IJK,N_minusminus_reduce(mm),Pspace_minusminus_reduce(mm))
+         else ! do sampling method
+            call NP_plusplus_sample(mm,energy,velocity,Nlist,List,IJK,N_plusplus_reduce(mm),Pspace_plusplus_reduce(mm))
+            call NP_plusminus_sample(mm,energy,velocity,Nlist,List,IJK,N_plusminus_reduce(mm),Pspace_plusminus_reduce(mm))
+            call NP_minusminus_sample(mm,energy,velocity,Nlist,List,IJK,N_minusminus_reduce(mm),Pspace_minusminus_reduce(mm))
+       
+         endif
+
       endif
     end do
 
@@ -1571,7 +2367,6 @@ contains
          MPI_DOUBLE_PRECISION,MPI_SUM,MPI_COMM_WORLD,mm)
 
   end subroutine NP_driver_4ph
-
   ! RTA-only version of 4ph ++ process, Ind_plusplus; Avoid double counting
   subroutine RTA_plusplus(mm,energy,velocity,eigenvect,Nlist,List,&
       Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,IJK,&
@@ -1617,60 +2412,67 @@ contains
     if (omega.ne.0) then
       do ii=1,nptk
          do jj=ii,nptk
-            do ss=1,nptk
+            ! do ss=1,nptk
                qprime=IJK(:,ii)
                realqprime=matmul(rlattvec,qprime/dble(ngrid))
                qdprime=IJK(:,jj)
                realqdprime=matmul(rlattvec,qdprime/dble(ngrid))
-               qtprime=IJK(:,ss)
+               ! ----------- fix -----------
+               qtprime=modulo(q+qprime+qdprime,ngrid)
                realqtprime=matmul(rlattvec,qtprime/dble(ngrid))
-               if (all(qtprime.eq.modulo(q+qprime+qdprime,ngrid))) then
-                  do j=1,Nbands
-                     startbranch=1
-                     if(jj==ii) startbranch=j
-                     do k=startbranch,Nbands
-                        do l=1,Nbands
-                           omegap=energy(ii,j)
-                           omegadp=energy(jj,k)
-                           omegatp=energy(ss,l)
-                           if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
-                              sigma=scalebroad*base_sigma(&
-                              -velocity(jj,k,:)+velocity(ss,l,:))
-                              if (abs(omega+omegap+omegadp-omegatp).le.sigma) then
-                                 if (sigma.le.0.001) sigma=1/sqrt(Pi)
-                                 fBEprime=1.d0/(exp(hbar*omegap/Kb/T)-1.D0)
-                                 fBEdprime=1.d0/(exp(hbar*omegadp/Kb/T)-1.D0)
-                                 fBEtprime=1.d0/(exp(hbar*omegatp/Kb/T)-1.D0)
-                                 WP4=(fBEprime*fBEdprime*(1+fBEtprime)-(1+fBEprime)*(1+fBEdprime)*fBEtprime)*&
-                                    exp(-(omega+omegap+omegadp-omegatp)**2/(sigma**2))/sigma/sqrt(Pi)/&
-                                    (omega*omegap*omegadp*omegatp)
-                                 if(omegap.le.1.25 .or. omegadp.le.1.25 .or.omegatp.le.1.25) WP4=0
-                                 WP4_plusplus=WP4_plusplus+WP4
-                                 if (.not.onlyharmonic) then
-                                    Vp=Vp_pp(i,j,k,l,list(ll),ii,jj,ss,&
-                                             realqprime,realqdprime,realqtprime,eigenvect,&
-                                             Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l)
-                                    Gamma_plusplus=Gamma_plusplus+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
-                                    !========Normal and Umklapp scattering========
-                                    call ws_cell(q,shortest_q)
-                                    call ws_cell(qprime,shortest_qprime)
-                                    call ws_cell(qdprime,shortest_qdprime)
-                                    call ws_cell(qtprime,shortest_qtprime)
-                                    if (abs(shortest_q(1)+shortest_qprime(1)+shortest_qdprime(1)-shortest_qtprime(1))<1e-10.and.&
-                                       abs(shortest_q(2)+shortest_qprime(2)+shortest_qdprime(2)-shortest_qtprime(2))<1e-10.and.&
-                                       abs(shortest_q(3)+shortest_qprime(3)+shortest_qdprime(3)-shortest_qtprime(3))<1e-10) then
-                                       Gamma_plusplus_N=Gamma_plusplus_N+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
-                                       else
-                                       Gamma_plusplus_U=Gamma_plusplus_U+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+               ss=Index_N(qtprime(1),qtprime(2),qtprime(3)) ! Instead of iteration, calculate momentem ss from other phonons can have higher efficiency.
+               ! ----------- end fix -----------
+               ! qtprime=IJK(:,ss)
+               ! realqtprime=matmul(rlattvec,qtprime/dble(ngrid))
+               if (ss.ge.1) then
+                  ! if (all(qtprime.eq.modulo(q+qprime+qdprime,ngrid))) then
+                     do j=1,Nbands
+                        startbranch=1
+                        if(jj==ii) startbranch=j
+                        do k=startbranch,Nbands
+                           do l=1,Nbands
+                              omegap=energy(ii,j)
+                              omegadp=energy(jj,k)
+                              omegatp=energy(ss,l)
+                              if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
+                                 sigma=scalebroad*base_sigma(&
+                                 -velocity(jj,k,:)+velocity(ss,l,:))
+                                 if (abs(omega+omegap+omegadp-omegatp).le.sigma) then
+                                    if (sigma.le.0.001) sigma=1/sqrt(Pi)
+                                    fBEprime=1.d0/(exp(hbar*omegap/Kb/T)-1.D0)
+                                    fBEdprime=1.d0/(exp(hbar*omegadp/Kb/T)-1.D0)
+                                    fBEtprime=1.d0/(exp(hbar*omegatp/Kb/T)-1.D0)
+                                    WP4=(fBEprime*fBEdprime*(1+fBEtprime)-(1+fBEprime)*(1+fBEdprime)*fBEtprime)*&
+                                       exp(-(omega+omegap+omegadp-omegatp)**2/(sigma**2))/sigma/sqrt(Pi)/&
+                                       (omega*omegap*omegadp*omegatp)
+                                    if(omegap.le.1.25 .or. omegadp.le.1.25 .or.omegatp.le.1.25) WP4=0
+                                    WP4_plusplus=WP4_plusplus+WP4
+                                    if (.not.onlyharmonic) then
+                                       Vp=Vp_pp(i,j,k,l,list(ll),ii,jj,ss,&
+                                                realqprime,realqdprime,realqtprime,eigenvect,&
+                                                Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l)
+                                       Gamma_plusplus=Gamma_plusplus+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                                       !========Normal and Umklapp scattering========
+                                       call ws_cell(q,shortest_q)
+                                       call ws_cell(qprime,shortest_qprime)
+                                       call ws_cell(qdprime,shortest_qdprime)
+                                       call ws_cell(qtprime,shortest_qtprime)
+                                       if (abs(shortest_q(1)+shortest_qprime(1)+shortest_qdprime(1)-shortest_qtprime(1))<1e-10.and.&
+                                          abs(shortest_q(2)+shortest_qprime(2)+shortest_qdprime(2)-shortest_qtprime(2))<1e-10.and.&
+                                          abs(shortest_q(3)+shortest_qprime(3)+shortest_qdprime(3)-shortest_qtprime(3))<1e-10) then
+                                          Gamma_plusplus_N=Gamma_plusplus_N+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                                          else
+                                          Gamma_plusplus_U=Gamma_plusplus_U+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                                       end if
                                     end if
                                  end if
                               end if
-                           end if
+                           end do
                         end do
                      end do
-                  end do
-               end if
-            end do
+                  ! end if
+               end if ! greater equal than 1
+            ! end do
          end do
       end do
       WP4_plusplus=WP4_plusplus/nptk/nptk
@@ -1727,63 +2529,70 @@ contains
     if (omega.ne.0) then
       do ii=1,nptk
          do jj=1,nptk
-            do ss=jj,nptk
+            ! do ss=jj,nptk
                qprime=IJK(:,ii)
                realqprime=matmul(rlattvec,qprime/dble(ngrid))
                qdprime=IJK(:,jj)
                realqdprime=matmul(rlattvec,qdprime/dble(ngrid))
-               qtprime=IJK(:,ss)
+               ! ----------- fix -----------
+               qtprime=modulo(q+qprime-qdprime,ngrid)
                realqtprime=matmul(rlattvec,qtprime/dble(ngrid))
-               if (all(qtprime.eq.modulo(q+qprime-qdprime,ngrid))) then
-                  do j=1,Nbands
-                     do k=1,Nbands
-                        startbranch=1
-                        if(ss==jj) startbranch=k
-                        do l=startbranch,Nbands
-                           omegap=energy(ii,j)
-                           omegadp=energy(jj,k)
-                           omegatp=energy(ss,l)
-                           if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
-                              sigma=scalebroad*base_sigma(&
-                              velocity(jj,k,:)-velocity(ss,l,:))
-                              if ((list(ll).ne.jj .or. i.ne.k).and.(list(ll).ne.ss .or. i.ne.l).and.&
-                                 (ii.ne.jj .or. j.ne.k).and.(ii.ne.ss .or. j.ne.l) )then ! none of the two pairs can be the same
-                                 if (abs(omega+omegap-omegadp-omegatp).le.sigma) then
-                                    if (sigma.le.0.001) sigma=1/sqrt(Pi)
-                                    fBEprime=1.d0/(exp(hbar*omegap/Kb/T)-1.D0)
-                                    fBEdprime=1.d0/(exp(hbar*omegadp/Kb/T)-1.D0)
-                                    fBEtprime=1.d0/(exp(hbar*omegatp/Kb/T)-1.D0)
-                                    WP4=(fBEprime*(1+fBEdprime)*(1+fBEtprime)-(1+fBEprime)*fBEdprime*fBEtprime)*&
-                                       exp(-(omega+omegap-omegadp-omegatp)**2/(sigma**2))/sigma/sqrt(Pi)/&
-                                       (omega*omegap*omegadp*omegatp)
-                                    if(omegap.le.1.25 .or. omegadp.le.1.25 .or.omegatp.le.1.25) WP4=0
-                                    WP4_plusminus=WP4_plusminus+WP4
-                                    if (.not.onlyharmonic) then
-                                       Vp=Vp_pm(i,j,k,l,list(ll),ii,jj,ss,&
-                                                realqprime,realqdprime,realqtprime,eigenvect,&
-                                                Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l)
-                                       Gamma_plusminus=Gamma_plusminus+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
-                                       !========Normal and Umklapp scattering========
-                                       call ws_cell(q,shortest_q)
-                                       call ws_cell(qprime,shortest_qprime)
-                                       call ws_cell(qdprime,shortest_qdprime)
-                                       call ws_cell(qtprime,shortest_qtprime)
-                                       if (abs(shortest_q(1)+shortest_qprime(1)-shortest_qdprime(1)-shortest_qtprime(1))<1e-10.and.&
-                                          abs(shortest_q(2)+shortest_qprime(2)-shortest_qdprime(2)-shortest_qtprime(2))<1e-10.and.&
-                                          abs(shortest_q(3)+shortest_qprime(3)-shortest_qdprime(3)-shortest_qtprime(3))<1e-10) then
-                                          Gamma_plusminus_N=Gamma_plusminus_N+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
-                                          else
-                                          Gamma_plusminus_U=Gamma_plusminus_U+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+               ss=Index_N(qtprime(1),qtprime(2),qtprime(3)) ! Instead of iteration, calculate momentem ss from other phonons can have higher efficiency.
+               ! ----------- end fix -----------
+               ! qtprime=IJK(:,ss)
+               ! realqtprime=matmul(rlattvec,qtprime/dble(ngrid))
+               if (ss.ge.jj) then
+                  ! if (all(qtprime.eq.modulo(q+qprime-qdprime,ngrid))) then
+                     do j=1,Nbands
+                        do k=1,Nbands
+                           startbranch=1
+                           if(ss==jj) startbranch=k
+                           do l=startbranch,Nbands
+                              omegap=energy(ii,j)
+                              omegadp=energy(jj,k)
+                              omegatp=energy(ss,l)
+                              if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
+                                 sigma=scalebroad*base_sigma(&
+                                 velocity(jj,k,:)-velocity(ss,l,:))
+                                 if ((list(ll).ne.jj .or. i.ne.k).and.(list(ll).ne.ss .or. i.ne.l).and.&
+                                    (ii.ne.jj .or. j.ne.k).and.(ii.ne.ss .or. j.ne.l) )then ! none of the two pairs can be the same
+                                    if (abs(omega+omegap-omegadp-omegatp).le.sigma) then
+                                       if (sigma.le.0.001) sigma=1/sqrt(Pi)
+                                       fBEprime=1.d0/(exp(hbar*omegap/Kb/T)-1.D0)
+                                       fBEdprime=1.d0/(exp(hbar*omegadp/Kb/T)-1.D0)
+                                       fBEtprime=1.d0/(exp(hbar*omegatp/Kb/T)-1.D0)
+                                       WP4=(fBEprime*(1+fBEdprime)*(1+fBEtprime)-(1+fBEprime)*fBEdprime*fBEtprime)*&
+                                          exp(-(omega+omegap-omegadp-omegatp)**2/(sigma**2))/sigma/sqrt(Pi)/&
+                                          (omega*omegap*omegadp*omegatp)
+                                       if(omegap.le.1.25 .or. omegadp.le.1.25 .or.omegatp.le.1.25) WP4=0
+                                       WP4_plusminus=WP4_plusminus+WP4
+                                       if (.not.onlyharmonic) then
+                                          Vp=Vp_pm(i,j,k,l,list(ll),ii,jj,ss,&
+                                                   realqprime,realqdprime,realqtprime,eigenvect,&
+                                                   Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l)
+                                          Gamma_plusminus=Gamma_plusminus+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                                          !========Normal and Umklapp scattering========
+                                          call ws_cell(q,shortest_q)
+                                          call ws_cell(qprime,shortest_qprime)
+                                          call ws_cell(qdprime,shortest_qdprime)
+                                          call ws_cell(qtprime,shortest_qtprime)
+                                          if (abs(shortest_q(1)+shortest_qprime(1)-shortest_qdprime(1)-shortest_qtprime(1))<1e-10.and.&
+                                             abs(shortest_q(2)+shortest_qprime(2)-shortest_qdprime(2)-shortest_qtprime(2))<1e-10.and.&
+                                             abs(shortest_q(3)+shortest_qprime(3)-shortest_qdprime(3)-shortest_qtprime(3))<1e-10) then
+                                             Gamma_plusminus_N=Gamma_plusminus_N+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                                             else
+                                             Gamma_plusminus_U=Gamma_plusminus_U+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                                          end if
                                        end if
                                     end if
                                  end if
                               end if
-                           end if
+                           end do
                         end do
                      end do
-                  end do
-               end if
-            end do
+                  ! end if
+               end if ! greater equal than jj
+            ! end do
          end do
       end do
       WP4_plusminus=WP4_plusminus/nptk/nptk
@@ -1841,62 +2650,69 @@ contains
     if (omega.ne.0) then
       do ii=1,nptk
          do jj=ii,nptk
-            do ss=jj,nptk
+            ! do ss=jj,nptk
                qprime=IJK(:,ii)
                realqprime=matmul(rlattvec,qprime/dble(ngrid))
                qdprime=IJK(:,jj)
                realqdprime=matmul(rlattvec,qdprime/dble(ngrid))
-               qtprime=IJK(:,ss)
+               ! ----------- fix -----------
+               qtprime=modulo(q-qprime-qdprime,ngrid)
                realqtprime=matmul(rlattvec,qtprime/dble(ngrid))
-               if (all(qtprime.eq.modulo(q-qprime-qdprime,ngrid))) then
-                  do j=1,Nbands
-                     startbranch=1
-                     if(jj==ii) startbranch=j
-                     do k=startbranch,Nbands
+               ss=Index_N(qtprime(1),qtprime(2),qtprime(3)) ! Instead of iteration, calculate momentem ss from other phonons can have higher efficiency.
+               ! ----------- end fix -----------
+               ! qtprime=IJK(:,ss)
+               ! realqtprime=matmul(rlattvec,qtprime/dble(ngrid))
+               if (ss.ge.jj) then
+                  ! if (all(qtprime.eq.modulo(q-qprime-qdprime,ngrid))) then
+                     do j=1,Nbands
                         startbranch=1
-                        if(ss==jj) startbranch=k
-                        do l=startbranch,Nbands
-                           omegap=energy(ii,j)
-                           omegadp=energy(jj,k)
-                           omegatp=energy(ss,l)
-                           if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
-                              sigma=scalebroad*base_sigma(&
-                              velocity(jj,k,:)-velocity(ss,l,:))
-                              if (abs(omega-omegap-omegadp-omegatp).le.sigma) then
-                                 if (sigma.le.0.001) sigma=1/sqrt(Pi)
-                                 fBEprime=1.d0/(exp(hbar*omegap/Kb/T)-1.D0)
-                                 fBEdprime=1.d0/(exp(hbar*omegadp/Kb/T)-1.D0)
-                                 fBEtprime=1.d0/(exp(hbar*omegatp/Kb/T)-1.D0)
-                                 WP4=((1+fBEprime)*(1+fBEdprime)*(1+fBEtprime)-fBEprime*fBEdprime*fBEtprime)*&
-                                    exp(-(omega-omegap-omegadp-omegatp)**2/(sigma**2))/sigma/sqrt(Pi)/&
-                                    (omega*omegap*omegadp*omegatp)
-                                 if(omegap.le.1.25 .or. omegadp.le.1.25 .or.omegatp.le.1.25) WP4=0
-                                 WP4_minusminus=WP4_minusminus+WP4
-                                 if (.not.onlyharmonic) then
-                                    Vp=Vp_mm(i,j,k,l,list(ll),ii,jj,ss,&
-                                             realqprime,realqdprime,realqtprime,eigenvect,&
-                                             Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l)
-                                    Gamma_minusminus=Gamma_minusminus+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
-                                    !========Normal and Umklapp scattering========
-                                    call ws_cell(q,shortest_q)
-                                    call ws_cell(qprime,shortest_qprime)
-                                    call ws_cell(qdprime,shortest_qdprime)
-                                    call ws_cell(qtprime,shortest_qtprime)
-                                    if (abs(shortest_q(1)-shortest_qprime(1)-shortest_qdprime(1)-shortest_qtprime(1))<1e-10.and.&
-                                       abs(shortest_q(2)-shortest_qprime(2)-shortest_qdprime(2)-shortest_qtprime(2))<1e-10.and.&
-                                       abs(shortest_q(3)-shortest_qprime(3)-shortest_qdprime(3)-shortest_qtprime(3))<1e-10) then
-                                       Gamma_minusminus_N=Gamma_minusminus_N+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
-                                       else
-                                       Gamma_minusminus_U=Gamma_minusminus_U+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                        if(jj==ii) startbranch=j
+                        do k=startbranch,Nbands
+                           startbranch=1
+                           if(ss==jj) startbranch=k
+                           do l=startbranch,Nbands
+                              omegap=energy(ii,j)
+                              omegadp=energy(jj,k)
+                              omegatp=energy(ss,l)
+                              if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
+                                 sigma=scalebroad*base_sigma(&
+                                 velocity(jj,k,:)-velocity(ss,l,:))
+                                 if (abs(omega-omegap-omegadp-omegatp).le.sigma) then
+                                    if (sigma.le.0.001) sigma=1/sqrt(Pi)
+                                    fBEprime=1.d0/(exp(hbar*omegap/Kb/T)-1.D0)
+                                    fBEdprime=1.d0/(exp(hbar*omegadp/Kb/T)-1.D0)
+                                    fBEtprime=1.d0/(exp(hbar*omegatp/Kb/T)-1.D0)
+                                    WP4=((1+fBEprime)*(1+fBEdprime)*(1+fBEtprime)-fBEprime*fBEdprime*fBEtprime)*&
+                                       exp(-(omega-omegap-omegadp-omegatp)**2/(sigma**2))/sigma/sqrt(Pi)/&
+                                       (omega*omegap*omegadp*omegatp)
+                                    if(omegap.le.1.25 .or. omegadp.le.1.25 .or.omegatp.le.1.25) WP4=0
+                                    WP4_minusminus=WP4_minusminus+WP4
+                                    if (.not.onlyharmonic) then
+                                       Vp=Vp_mm(i,j,k,l,list(ll),ii,jj,ss,&
+                                                realqprime,realqdprime,realqtprime,eigenvect,&
+                                                Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l)
+                                       Gamma_minusminus=Gamma_minusminus+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                                       !========Normal and Umklapp scattering========
+                                       call ws_cell(q,shortest_q)
+                                       call ws_cell(qprime,shortest_qprime)
+                                       call ws_cell(qdprime,shortest_qdprime)
+                                       call ws_cell(qtprime,shortest_qtprime)
+                                       if (abs(shortest_q(1)-shortest_qprime(1)-shortest_qdprime(1)-shortest_qtprime(1))<1e-10.and.&
+                                          abs(shortest_q(2)-shortest_qprime(2)-shortest_qdprime(2)-shortest_qtprime(2))<1e-10.and.&
+                                          abs(shortest_q(3)-shortest_qprime(3)-shortest_qdprime(3)-shortest_qtprime(3))<1e-10) then
+                                          Gamma_minusminus_N=Gamma_minusminus_N+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                                          else
+                                          Gamma_minusminus_U=Gamma_minusminus_U+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                                       end if
                                     end if
                                  end if
                               end if
-                           end if
+                           end do
                         end do
                      end do
-                  end do
-               end if
-            end do
+                  ! end if
+               end if ! greater than jj
+            ! end do
          end do
       end do
       WP4_minusminus=WP4_minusminus/nptk/nptk
@@ -1906,6 +2722,428 @@ contains
     Gamma_minusminus=Gamma_minusminus*3.37617087*1.d9/nptk/nptk
     Gamma_minusminus_N=Gamma_minusminus_N*3.37617087*1.d9/nptk/nptk
     Gamma_minusminus_U=Gamma_minusminus_U*3.37617087*1.d9/nptk/nptk
+
+  end subroutine
+  ! RTA-only version of 4ph ++ process using sampling method, Ind_plusplus; Avoid double counting
+  subroutine RTA_plusplus_sample(mm,energy,velocity,eigenvect,Nlist,List,&
+      Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,IJK,&
+      Gamma_plusplus,WP4_plusplus,Gamma_plusplus_N,Gamma_plusplus_U)
+    implicit none
+
+    integer(kind=4),intent(in) :: mm,NList,List(Nlist),IJK(3,nptk),Ntri
+    integer(kind=4),intent(in) :: Index_i(Ntri),Index_j(Ntri),Index_k(Ntri),Index_l(Ntri)
+    real(kind=8),intent(in) :: energy(nptk,Nbands),velocity(nptk,Nbands,3)
+    real(kind=8),intent(in) :: Phi(3,3,3,3,Ntri),R_j(3,Ntri),R_k(3,Ntri),R_l(3,Ntri)
+    complex(kind=8),intent(in) :: eigenvect(nptk,Nbands,Nbands)
+    real(kind=8),intent(out) :: Gamma_plusplus,WP4_plusplus
+    real(kind=8),intent(out) :: Gamma_plusplus_N,Gamma_plusplus_U
+    real(kind=8) :: shortest_q(3),shortest_qprime(3),shortest_qdprime(3),shortest_qtprime(3)
+
+    integer(kind=4) :: q(3),qprime(3),qdprime(3),qtprime(3),i,j,k,l
+    integer(kind=4) :: Index_N(0:(Ngrid(1)-1),0:(Ngrid(2)-1),0:(Ngrid(3)-1))
+    integer(kind=4) :: ii,jj,kk,ll,ss,startbranch
+    real(kind=8) :: sigma
+    real(kind=8) :: fBEprime,fBEdprime,fBEtprime
+    real(kind=8) :: omega,omegap,omegadp,omegatp
+    real(kind=8) :: realq(3),realqprime(3),realqdprime(3),realqtprime(3)
+    real(kind=8) :: WP4
+    complex(kind=8) :: Vp
+
+   ! ----------- sampling method add -----------
+   integer(kind=8) :: rand_num, iter, total_process, matrix_iter, temp_int
+   real :: rand_matrix(num_sample_process_4ph*5)
+   total_process = Nbands*nptk*Nbands*nptk*Nbands
+   ! ----------- end sampling method add -----------
+
+
+    Gamma_plusplus=0.d00
+    Gamma_plusplus_N=0.d00
+    Gamma_plusplus_U=0.d00
+    WP4_plusplus=0.d00
+    do ii=0,Ngrid(1)-1
+       do jj=0,Ngrid(2)-1
+          do kk=0,Ngrid(3)-1
+            Index_N(ii,jj,kk)=(kk*Ngrid(2)+jj)*Ngrid(1)+ii+1
+          end do
+       end do
+    end do
+    i=modulo(mm-1,Nbands)+1
+    ll=int((mm-1)/Nbands)+1
+    q=IJK(:,list(ll))
+    realq=matmul(rlattvec,q/dble(ngrid))
+    omega=energy(list(ll),i)
+
+    if (omega.ne.0) then
+      ! ----------- sampling method add -----------
+      ! Note: 
+      ! phonon1: ll is momentum [1:nptk], i is energy [1:Nband], ll and i are calculated from mm, mm is phonon number [1, Nbands*NList]
+      ! phonon2: ii is momentum [1:nptk], j is energy [1:Nband]
+      ! phonon3: jj is momentum [ii:nptk], k is energy [startbranch:Nband]
+      ! phonon4: ss is momentum [1:nptk], l is energy [1:Nband]
+      ! total combination: Nbands*nptk*Nbands*nptk*Nbands/2
+      ! j = n + FLOOR((m+1-n)*u)  ! equation to generate random number j in [n,m] from a uniform distribution u in [0,1]
+
+      call random_seed()
+      call random_number(rand_matrix)
+      iter=0
+      do while (iter<=num_sample_process_4ph)
+         matrix_iter = (iter-1)*5
+         ii=1+FLOOR(INT(nptk+1-1)*rand_matrix(matrix_iter+1)) ! phonon2 momentum [1:nptk]
+         j=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+2)) ! phonon2 branch [1:Nband]
+         jj=1+FLOOR(INT(nptk+1-1)*rand_matrix(matrix_iter+3)) ! phonon3 momentum [ii:nptk]
+         startbranch=1
+         if(jj==ii) startbranch=j
+         k=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+4)) ! phonon3 branch [startbranch:Nband]
+
+         qprime=IJK(:,ii)
+         realqprime=matmul(rlattvec,qprime/dble(ngrid))
+
+         qdprime=IJK(:,jj)
+         realqdprime=matmul(rlattvec,qdprime/dble(ngrid))
+
+         qtprime=modulo(q+qprime+qdprime,ngrid)
+         realqtprime=matmul(rlattvec,qtprime/dble(ngrid))
+         ss=Index_N(qtprime(1),qtprime(2),qtprime(3)) ! phonon4 momentum [1:nptk]
+         l=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+5)) ! phonon4 branch [1:Nband]
+         ! ----------- end sampling method add -----------
+         if (jj>=ii .AND. k>=startbranch) then ! make sure that the phonon3 is in [ii:nptk], phonon3 branch is in [startbranch:Nband]
+            omegap=energy(ii,j)
+            omegadp=energy(jj,k)
+            omegatp=energy(ss,l)
+            if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
+               sigma=scalebroad*base_sigma(&
+               -velocity(jj,k,:)+velocity(ss,l,:))
+               if (abs(omega+omegap+omegadp-omegatp).le.sigma) then
+                  if (sigma.le.0.001) sigma=1/sqrt(Pi)
+                  fBEprime=1.d0/(exp(hbar*omegap/Kb/T)-1.D0)
+                  fBEdprime=1.d0/(exp(hbar*omegadp/Kb/T)-1.D0)
+                  fBEtprime=1.d0/(exp(hbar*omegatp/Kb/T)-1.D0)
+                  WP4=(fBEprime*fBEdprime*(1+fBEtprime)-(1+fBEprime)*(1+fBEdprime)*fBEtprime)*&
+                     exp(-(omega+omegap+omegadp-omegatp)**2/(sigma**2))/sigma/sqrt(Pi)/&
+                     (omega*omegap*omegadp*omegatp)
+                  if(omegap.le.1.25 .or. omegadp.le.1.25 .or.omegatp.le.1.25) WP4=0
+                  WP4_plusplus=WP4_plusplus+WP4
+                  if (.not.onlyharmonic) then
+                     Vp=Vp_pp(i,j,k,l,list(ll),ii,jj,ss,&
+                              realqprime,realqdprime,realqtprime,eigenvect,&
+                              Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l)
+                     Gamma_plusplus=Gamma_plusplus+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                     !========Normal and Umklapp scattering========
+                     call ws_cell(q,shortest_q)
+                     call ws_cell(qprime,shortest_qprime)
+                     call ws_cell(qdprime,shortest_qdprime)
+                     call ws_cell(qtprime,shortest_qtprime)
+                     if (abs(shortest_q(1)+shortest_qprime(1)+shortest_qdprime(1)-shortest_qtprime(1))<1e-10.and.&
+                        abs(shortest_q(2)+shortest_qprime(2)+shortest_qdprime(2)-shortest_qtprime(2))<1e-10.and.&
+                        abs(shortest_q(3)+shortest_qprime(3)+shortest_qdprime(3)-shortest_qtprime(3))<1e-10) then
+                        Gamma_plusplus_N=Gamma_plusplus_N+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                        else
+                        Gamma_plusplus_U=Gamma_plusplus_U+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                     end if
+                  end if
+               end if
+            end if
+         end if ! check momentum and energy conservation
+         iter = iter + 1
+      end do ! iter                        
+      WP4_plusplus=WP4_plusplus/nptk/nptk
+    end if
+    ! converting to THz
+    Gamma_plusplus=Gamma_plusplus*3.37617087*1.d9/nptk/nptk
+    Gamma_plusplus_N=Gamma_plusplus_N*3.37617087*1.d9/nptk/nptk
+    Gamma_plusplus_U=Gamma_plusplus_U*3.37617087*1.d9/nptk/nptk
+
+   ! ----------- sampling method add -----------
+   Gamma_plusplus = Gamma_plusplus/num_sample_process_4ph*total_process  
+   Gamma_plusplus_N = Gamma_plusplus_N*total_process/num_sample_process_4ph
+   Gamma_plusplus_U = Gamma_plusplus_U*total_process/num_sample_process_4ph
+   WP4_plusplus = WP4_plusplus*total_process/num_sample_process_4ph
+   ! ----------- end sampling method add -----------
+
+
+  end subroutine
+
+  ! RTA-only version of 4ph +- process using sampling method, Ind_plusminus
+  subroutine RTA_plusminus_sample(mm,energy,velocity,eigenvect,Nlist,List,&
+      Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,IJK,&
+      Gamma_plusminus,WP4_plusminus,Gamma_plusminus_N,Gamma_plusminus_U)
+    implicit none
+
+    integer(kind=4),intent(in) :: mm,NList,List(Nlist),IJK(3,nptk),Ntri
+    integer(kind=4),intent(in) :: Index_i(Ntri),Index_j(Ntri),Index_k(Ntri),Index_l(Ntri)
+    real(kind=8),intent(in) :: energy(nptk,Nbands),velocity(nptk,Nbands,3)
+    real(kind=8),intent(in) :: Phi(3,3,3,3,Ntri),R_j(3,Ntri),R_k(3,Ntri),R_l(3,Ntri)
+    complex(kind=8),intent(in) :: eigenvect(nptk,Nbands,Nbands)
+    real(kind=8),intent(out) :: Gamma_plusminus,WP4_plusminus
+    real(kind=8),intent(out) :: Gamma_plusminus_N,Gamma_plusminus_U
+    real(kind=8) :: shortest_q(3),shortest_qprime(3),shortest_qdprime(3),shortest_qtprime(3)
+
+    integer(kind=4) :: q(3),qprime(3),qdprime(3),qtprime(3),i,j,k,l
+    integer(kind=4) :: Index_N(0:(Ngrid(1)-1),0:(Ngrid(2)-1),0:(Ngrid(3)-1))
+    integer(kind=4) :: ii,jj,kk,ll,ss,startbranch
+    real(kind=8) :: sigma
+    real(kind=8) :: fBEprime,fBEdprime,fBEtprime
+    real(kind=8) :: omega,omegap,omegadp,omegatp
+    real(kind=8) :: realq(3),realqprime(3),realqdprime(3),realqtprime(3)
+    real(kind=8) :: WP4
+    complex(kind=8) :: Vp
+
+   ! ----------- sampling method add -----------
+   integer(kind=8) :: rand_num, iter, total_process, matrix_iter, temp_int
+   real :: rand_matrix(num_sample_process_4ph*5)
+   total_process = Nbands*nptk*Nbands*nptk*Nbands
+   ! ----------- end sampling method add -----------
+
+
+    Gamma_plusminus=0.d00
+    Gamma_plusminus_N=0.d00
+    Gamma_plusminus_U=0.d00
+    WP4_plusminus=0.d00
+    do ii=0,Ngrid(1)-1
+       do jj=0,Ngrid(2)-1
+          do kk=0,Ngrid(3)-1
+            Index_N(ii,jj,kk)=(kk*Ngrid(2)+jj)*Ngrid(1)+ii+1
+          end do
+       end do
+    end do
+    i=modulo(mm-1,Nbands)+1
+    ll=int((mm-1)/Nbands)+1
+    q=IJK(:,list(ll))
+    realq=matmul(rlattvec,q/dble(ngrid))
+    omega=energy(list(ll),i)
+
+    if (omega.ne.0) then
+      ! ----------- sampling method add -----------
+      ! Note: 
+      ! phonon1: ll is momentum [1:nptk], i is energy [1:Nband], ll and i are calculated from mm, mm is phonon number [1, Nbands*NList]
+      ! phonon2: ii is momentum [1:nptk], j is energy [1:Nband]
+      ! phonon3: jj is momentum [1:nptk], k is energy [1:Nband]
+      ! phonon4: ss is momentum [jj:nptk], l is energy [startbranch:Nband]
+      ! total combination: Nbands*nptk*Nbands*nptk*Nbands/2
+      ! j = n + FLOOR((m+1-n)*u)  ! equation to generate random number j in [n,m] from a uniform distribution u in [0,1]
+
+      call random_seed()
+      call random_number(rand_matrix)
+      iter=0
+      do while (iter<=num_sample_process_4ph)
+         matrix_iter = (iter-1)*5
+         ii=1+FLOOR(INT(nptk+1-1)*rand_matrix(matrix_iter+1)) ! phonon2 momentum [1:nptk]
+         j=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+2)) ! phonon2 branch [1:Nband]
+         jj=1+FLOOR(INT(nptk+1-1)*rand_matrix(matrix_iter+3)) ! phonon3 momentum [1:nptk]
+         k=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+4)) ! phonon3 branch [1:Nband]
+
+         qprime=IJK(:,ii)
+         realqprime=matmul(rlattvec,qprime/dble(ngrid))
+         qdprime=IJK(:,jj)
+         realqdprime=matmul(rlattvec,qdprime/dble(ngrid))
+         qtprime=modulo(q+qprime-qdprime,ngrid)
+         ss=Index_N(qtprime(1),qtprime(2),qtprime(3)) ! phonon4 momentum [1:nptk]
+         realqtprime=matmul(rlattvec,qtprime/dble(ngrid))
+         ! ----------- end sampling method add -----------
+         startbranch=1
+         if(ss==jj) startbranch=k
+         l=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+5)) ! phonon4 branch [startbranch:Nband]
+         if (ss>=jj .AND. l>=startbranch) then ! make sure that the phonon4 is in [jj:nptk], phonon4 branch is in [startbranch:Nband]
+            omegap=energy(ii,j)
+            omegadp=energy(jj,k)
+            omegatp=energy(ss,l)
+            if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
+               sigma=scalebroad*base_sigma(&
+               velocity(jj,k,:)-velocity(ss,l,:))
+               if ((list(ll).ne.jj .or. i.ne.k).and.(list(ll).ne.ss .or. i.ne.l).and.&
+                  (ii.ne.jj .or. j.ne.k).and.(ii.ne.ss .or. j.ne.l) )then ! none of the two pairs can be the same
+                  if (abs(omega+omegap-omegadp-omegatp).le.sigma) then
+                     if (sigma.le.0.001) sigma=1/sqrt(Pi)
+                     fBEprime=1.d0/(exp(hbar*omegap/Kb/T)-1.D0)
+                     fBEdprime=1.d0/(exp(hbar*omegadp/Kb/T)-1.D0)
+                     fBEtprime=1.d0/(exp(hbar*omegatp/Kb/T)-1.D0)
+                     WP4=(fBEprime*(1+fBEdprime)*(1+fBEtprime)-(1+fBEprime)*fBEdprime*fBEtprime)*&
+                        exp(-(omega+omegap-omegadp-omegatp)**2/(sigma**2))/sigma/sqrt(Pi)/&
+                        (omega*omegap*omegadp*omegatp)
+                     if(omegap.le.1.25 .or. omegadp.le.1.25 .or.omegatp.le.1.25) WP4=0
+                     WP4_plusminus=WP4_plusminus+WP4
+                     if (.not.onlyharmonic) then
+                        Vp=Vp_pm(i,j,k,l,list(ll),ii,jj,ss,&
+                                 realqprime,realqdprime,realqtprime,eigenvect,&
+                                 Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l)
+                        Gamma_plusminus=Gamma_plusminus+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                        !========Normal and Umklapp scattering========
+                        call ws_cell(q,shortest_q)
+                        call ws_cell(qprime,shortest_qprime)
+                        call ws_cell(qdprime,shortest_qdprime)
+                        call ws_cell(qtprime,shortest_qtprime)
+                        if (abs(shortest_q(1)+shortest_qprime(1)-shortest_qdprime(1)-shortest_qtprime(1))<1e-10.and.&
+                           abs(shortest_q(2)+shortest_qprime(2)-shortest_qdprime(2)-shortest_qtprime(2))<1e-10.and.&
+                           abs(shortest_q(3)+shortest_qprime(3)-shortest_qdprime(3)-shortest_qtprime(3))<1e-10) then
+                           Gamma_plusminus_N=Gamma_plusminus_N+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                           else
+                           Gamma_plusminus_U=Gamma_plusminus_U+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                        end if
+                     end if
+                  end if
+               end if
+            end if
+         end if ! check momentum and energy conservation
+         iter = iter + 1
+      end do ! iter
+      WP4_plusminus=WP4_plusminus/nptk/nptk
+    end if
+    
+    ! converting to THz
+    Gamma_plusminus=Gamma_plusminus*3.37617087*1.d9/nptk/nptk
+    Gamma_plusminus_N=Gamma_plusminus_N*3.37617087*1.d9/nptk/nptk
+    Gamma_plusminus_U=Gamma_plusminus_U*3.37617087*1.d9/nptk/nptk
+
+   ! ----------- sampling method add -----------
+   Gamma_plusminus = Gamma_plusminus/num_sample_process_4ph*total_process    
+   Gamma_plusminus_N = Gamma_plusminus_N*total_process/num_sample_process_4ph
+   Gamma_plusminus_U = Gamma_plusminus_U*total_process/num_sample_process_4ph
+   WP4_plusminus = WP4_plusminus*total_process/num_sample_process_4ph
+   ! ----------- end sampling method add -----------
+
+
+  end subroutine
+
+  ! RTA-only version of 4ph -- process using sampling method, Ind_minusminus
+  subroutine RTA_minusminus_sample(mm,energy,velocity,eigenvect,Nlist,List,&
+      Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,IJK,&
+      Gamma_minusminus,WP4_minusminus,Gamma_minusminus_N,Gamma_minusminus_U)
+    implicit none
+
+    integer(kind=4),intent(in) :: mm,NList,List(Nlist),IJK(3,nptk),Ntri
+    integer(kind=4),intent(in) :: Index_i(Ntri),Index_j(Ntri),Index_k(Ntri),Index_l(Ntri)
+    real(kind=8),intent(in) :: energy(nptk,Nbands),velocity(nptk,Nbands,3)
+    real(kind=8),intent(in) :: Phi(3,3,3,3,Ntri),R_j(3,Ntri),R_k(3,Ntri),R_l(3,Ntri)
+    complex(kind=8),intent(in) :: eigenvect(nptk,Nbands,Nbands)
+    real(kind=8),intent(out) :: Gamma_minusminus,WP4_minusminus
+    real(kind=8),intent(out) :: Gamma_minusminus_N,Gamma_minusminus_U
+    real(kind=8) :: shortest_q(3),shortest_qprime(3),shortest_qdprime(3),shortest_qtprime(3)
+
+    integer(kind=4) :: q(3),qprime(3),qdprime(3),qtprime(3),i,j,k,l
+    integer(kind=4) :: Index_N(0:(Ngrid(1)-1),0:(Ngrid(2)-1),0:(Ngrid(3)-1))
+    integer(kind=4) :: ii,jj,kk,ll,ss,startbranch1,startbranch2 ! Ziqi add
+    real(kind=8) :: sigma
+    real(kind=8) :: fBEprime,fBEdprime,fBEtprime
+    real(kind=8) :: omega,omegap,omegadp,omegatp
+    real(kind=8) :: realq(3),realqprime(3),realqdprime(3),realqtprime(3)
+    real(kind=8) :: WP4
+    complex(kind=8) :: Vp
+
+   ! ----------- sampling method add -----------
+   integer(kind=8) :: rand_num, iter, total_process, matrix_iter, temp_int
+   real :: rand_matrix(num_sample_process_4ph*5)
+   total_process = Nbands*nptk*Nbands*nptk*Nbands
+   ! ----------- end sampling method add -----------
+
+
+    Gamma_minusminus=0.d00
+    Gamma_minusminus_N=0.d00
+    Gamma_minusminus_U=0.d00
+    WP4_minusminus=0.d00
+    do ii=0,Ngrid(1)-1
+       do jj=0,Ngrid(2)-1
+          do kk=0,Ngrid(3)-1
+            Index_N(ii,jj,kk)=(kk*Ngrid(2)+jj)*Ngrid(1)+ii+1
+          end do
+       end do
+    end do
+    i=modulo(mm-1,Nbands)+1
+    ll=int((mm-1)/Nbands)+1
+    q=IJK(:,list(ll))
+    realq=matmul(rlattvec,q/dble(ngrid))
+    omega=energy(list(ll),i)
+
+    if (omega.ne.0) then
+      ! ----------- sampling method add -----------
+      ! Note: 
+      ! phonon1: ll is momentum [1:nptk], i is energy [1:Nband], ll and i are calculated from mm, mm is phonon number [1, Nbands*NList]
+      ! phonon2: ii is momentum [1:nptk], j is energy [1:Nband]
+      ! phonon3: jj is momentum [ii:nptk], k is energy [startbranch1:Nband]
+      ! phonon4: ss is momentum [jj:nptk], l is energy [startbranch2:Nband]
+      ! total combination: Nbands*nptk*Nbands*nptk*Nbands/2
+      ! j = n + FLOOR((m+1-n)*u)  ! equation to generate random number j in [n,m] from a uniform distribution u in [0,1]
+
+      call random_seed()
+      call random_number(rand_matrix)
+      iter=0
+      do while (iter<=num_sample_process_4ph)
+         matrix_iter = (iter-1)*5
+         ii=1+FLOOR(INT(nptk+1-1)*rand_matrix(matrix_iter+1)) ! phonon2 momentum [1:nptk]
+         j=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+2)) ! phonon2 branch [1:Nband]
+         jj=1+FLOOR(INT(nptk+1-1)*rand_matrix(matrix_iter+3)) ! phonon3 momentum [ii:nptk]
+         startbranch1=1
+         if(jj==ii) startbranch1=j
+         k=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+4)) ! phonon3 branch [startbranch1:Nband]
+
+         qprime=IJK(:,ii)
+         realqprime=matmul(rlattvec,qprime/dble(ngrid))
+         qdprime=IJK(:,jj)
+         realqdprime=matmul(rlattvec,qdprime/dble(ngrid))
+         qtprime=modulo(q-qprime-qdprime,ngrid)
+         realqtprime=matmul(rlattvec,qtprime/dble(ngrid))
+         ss=Index_N(qtprime(1),qtprime(2),qtprime(3)) ! phonon4 momentum [jj:nptk]
+         startbranch2=1
+         if(ss==jj) startbranch2=k
+         l=1+FLOOR(INT(Nbands+1-1)*rand_matrix(matrix_iter+5)) ! phonon4 branch [startbranch2:Nband]
+         ! ----------- end sampling method add -----------
+
+         if (jj>=ii .AND. k>=startbranch1 .AND. ss>=jj .AND. l>=startbranch2) then ! make sure that the phonon3 is in [ii:nptk], phonon3 branch is in [startbranch:Nband]
+
+            omegap=energy(ii,j)
+            omegadp=energy(jj,k)
+            omegatp=energy(ss,l)
+            if ((omegap.ne.0).and.(omegadp.ne.0).and.(omegatp.ne.0)) then
+               sigma=scalebroad*base_sigma(&
+               velocity(jj,k,:)-velocity(ss,l,:))
+               if (abs(omega-omegap-omegadp-omegatp).le.sigma) then
+                  if (sigma.le.0.001) sigma=1/sqrt(Pi)
+                  fBEprime=1.d0/(exp(hbar*omegap/Kb/T)-1.D0)
+                  fBEdprime=1.d0/(exp(hbar*omegadp/Kb/T)-1.D0)
+                  fBEtprime=1.d0/(exp(hbar*omegatp/Kb/T)-1.D0)
+                  WP4=((1+fBEprime)*(1+fBEdprime)*(1+fBEtprime)-fBEprime*fBEdprime*fBEtprime)*&
+                     exp(-(omega-omegap-omegadp-omegatp)**2/(sigma**2))/sigma/sqrt(Pi)/&
+                     (omega*omegap*omegadp*omegatp)
+                  if(omegap.le.1.25 .or. omegadp.le.1.25 .or.omegatp.le.1.25) WP4=0
+                  WP4_minusminus=WP4_minusminus+WP4
+                  if (.not.onlyharmonic) then
+                     Vp=Vp_mm(i,j,k,l,list(ll),ii,jj,ss,&
+                              realqprime,realqdprime,realqtprime,eigenvect,&
+                              Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l)
+                     Gamma_minusminus=Gamma_minusminus+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                     !========Normal and Umklapp scattering========
+                     call ws_cell(q,shortest_q)
+                     call ws_cell(qprime,shortest_qprime)
+                     call ws_cell(qdprime,shortest_qdprime)
+                     call ws_cell(qtprime,shortest_qtprime)
+                     if (abs(shortest_q(1)-shortest_qprime(1)-shortest_qdprime(1)-shortest_qtprime(1))<1e-10.and.&
+                        abs(shortest_q(2)-shortest_qprime(2)-shortest_qdprime(2)-shortest_qtprime(2))<1e-10.and.&
+                        abs(shortest_q(3)-shortest_qprime(3)-shortest_qdprime(3)-shortest_qtprime(3))<1e-10) then
+                        Gamma_minusminus_N=Gamma_minusminus_N+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                        else
+                        Gamma_minusminus_U=Gamma_minusminus_U+hbarp*hbarp*pi/8.d0*WP4*abs(Vp)**2
+                     end if
+                  end if
+               end if
+            end if
+         end if ! check momentum and energy conservation
+         iter = iter + 1
+      end do ! iter
+      WP4_minusminus=WP4_minusminus/nptk/nptk
+    end if
+    
+    ! converting to THz
+    Gamma_minusminus=Gamma_minusminus*3.37617087*1.d9/nptk/nptk
+    Gamma_minusminus_N=Gamma_minusminus_N*3.37617087*1.d9/nptk/nptk
+    Gamma_minusminus_U=Gamma_minusminus_U*3.37617087*1.d9/nptk/nptk
+
+   ! ----------- sampling method add -----------
+   Gamma_minusminus = Gamma_minusminus/num_sample_process_4ph*total_process  
+   Gamma_minusminus_N = Gamma_minusminus_N*total_process/num_sample_process_4ph
+   Gamma_minusminus_U = Gamma_minusminus_U*total_process/num_sample_process_4ph
+   WP4_minusminus = WP4_minusminus*total_process/num_sample_process_4ph
+   ! ----------- end sampling method add -----------
+
+
 
   end subroutine
 
@@ -1975,24 +3213,46 @@ contains
        i=modulo(mm-1,Nbands)+1
        ll=int((mm-1)/Nbands)+1
        if (energy(List(ll),i).le.omega_max) then
-          call RTA_plusplus(mm,energy,velocity,eigenvect,Nlist,List,&
-               Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,IJK,&
-               Gamma_plusplus,WP4_plusplus_reduce(mm),Gamma_plusplus_N,Gamma_plusplus_U)
-          rate_scatt_plusplus_reduce(i,ll)=Gamma_plusplus
-          rate_scatt_plusplus_reduce_N(i,ll)=Gamma_plusplus_N
-          rate_scatt_plusplus_reduce_U(i,ll)=Gamma_plusplus_U
-          call RTA_plusminus(mm,energy,velocity,eigenvect,Nlist,List,&
-               Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,IJK,&
-               Gamma_plusminus,WP4_plusminus_reduce(mm),Gamma_plusminus_N,Gamma_plusminus_U)
-          rate_scatt_plusminus_reduce(i,ll)=Gamma_plusminus
-          rate_scatt_plusminus_reduce_N(i,ll)=Gamma_plusminus_N
-          rate_scatt_plusminus_reduce_U(i,ll)=Gamma_plusminus_U
-          call RTA_minusminus(mm,energy,velocity,eigenvect,Nlist,List,&
-               Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,IJK,&
-               Gamma_minusminus,WP4_minusminus_reduce(mm),Gamma_minusminus_N,Gamma_minusminus_U)
-          rate_scatt_minusminus_reduce(i,ll)=Gamma_minusminus
-          rate_scatt_minusminus_reduce_N(i,ll)=Gamma_minusminus_N
-          rate_scatt_minusminus_reduce_U(i,ll)=Gamma_minusminus_U
+         if (num_sample_process_4ph==-1) then ! do not sample
+            call RTA_plusplus(mm,energy,velocity,eigenvect,Nlist,List,&
+                  Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,IJK,&
+                  Gamma_plusplus,WP4_plusplus_reduce(mm),Gamma_plusplus_N,Gamma_plusplus_U)
+            rate_scatt_plusplus_reduce(i,ll)=Gamma_plusplus
+            rate_scatt_plusplus_reduce_N(i,ll)=Gamma_plusplus_N
+            rate_scatt_plusplus_reduce_U(i,ll)=Gamma_plusplus_U
+            call RTA_plusminus(mm,energy,velocity,eigenvect,Nlist,List,&
+                  Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,IJK,&
+                  Gamma_plusminus,WP4_plusminus_reduce(mm),Gamma_plusminus_N,Gamma_plusminus_U)
+            rate_scatt_plusminus_reduce(i,ll)=Gamma_plusminus
+            rate_scatt_plusminus_reduce_N(i,ll)=Gamma_plusminus_N
+            rate_scatt_plusminus_reduce_U(i,ll)=Gamma_plusminus_U
+            call RTA_minusminus(mm,energy,velocity,eigenvect,Nlist,List,&
+                  Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,IJK,&
+                  Gamma_minusminus,WP4_minusminus_reduce(mm),Gamma_minusminus_N,Gamma_minusminus_U)
+            rate_scatt_minusminus_reduce(i,ll)=Gamma_minusminus
+            rate_scatt_minusminus_reduce_N(i,ll)=Gamma_minusminus_N
+            rate_scatt_minusminus_reduce_U(i,ll)=Gamma_minusminus_U
+         else ! do sampling method
+            call RTA_plusplus_sample(mm,energy,velocity,eigenvect,Nlist,List,&
+                  Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,IJK,&
+                  Gamma_plusplus,WP4_plusplus_reduce(mm),Gamma_plusplus_N,Gamma_plusplus_U)
+            rate_scatt_plusplus_reduce(i,ll)=Gamma_plusplus
+            rate_scatt_plusplus_reduce_N(i,ll)=Gamma_plusplus_N
+            rate_scatt_plusplus_reduce_U(i,ll)=Gamma_plusplus_U
+            call RTA_plusminus_sample(mm,energy,velocity,eigenvect,Nlist,List,&
+                  Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,IJK,&
+                  Gamma_plusminus,WP4_plusminus_reduce(mm),Gamma_plusminus_N,Gamma_plusminus_U)
+            rate_scatt_plusminus_reduce(i,ll)=Gamma_plusminus
+            rate_scatt_plusminus_reduce_N(i,ll)=Gamma_plusminus_N
+            rate_scatt_plusminus_reduce_U(i,ll)=Gamma_plusminus_U
+            call RTA_minusminus_sample(mm,energy,velocity,eigenvect,Nlist,List,&
+                  Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,IJK,&
+                  Gamma_minusminus,WP4_minusminus_reduce(mm),Gamma_minusminus_N,Gamma_minusminus_U)
+            rate_scatt_minusminus_reduce(i,ll)=Gamma_minusminus
+            rate_scatt_minusminus_reduce_N(i,ll)=Gamma_minusminus_N
+            rate_scatt_minusminus_reduce_U(i,ll)=Gamma_minusminus_U
+         endif
+
        endif
     end do
 

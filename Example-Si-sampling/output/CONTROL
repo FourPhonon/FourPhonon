@@ -1,0 +1,30 @@
+&allocations
+        nelements=1,
+        natoms=2,
+        ngrid(:)=32 32 32
+&end
+&crystal
+        lfactor=0.53711490774,
+	lattvec(:,1)=-0.5 0.0 0.5,
+        lattvec(:,2)=0.0 0.5 0.5,
+        lattvec(:,3)=-0.5 0.5 0.0,
+        elements="Si"
+        types=1 1,
+        positions(:,1)=0.00  0.00  0.00,
+        positions(:,2)=0.25 0.25 0.25
+	scell(:)=6 6 6
+&end
+&parameters
+	T=300
+  scalebroad=1
+  num_sample_process_3ph_phase_space = -1
+  num_sample_process_3ph = -1
+  num_sample_process_4ph_phase_space = 100000
+  num_sample_process_4ph = 100000  
+        
+&end
+&flags
+	convergence=.TRUE.
+	espresso=.TRUE.
+	four_phonon=.TRUE.
+&end

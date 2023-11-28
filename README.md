@@ -1,5 +1,6 @@
 # `FourPhonon`: An extension module to `ShengBTE` for computing four-phonon scattering rates and thermal conductivity
 
+
 ## Authors and references for `FourPhonon`:
 
 - Zherui Han [zrhan@purdue.edu](mailto:zrhan@purdue.edu)
@@ -7,12 +8,15 @@
 - Wu Li [wu.li.phys2011@gmail.com](mailto:wu.li.phys2011@gmail.com)
 - Tianli Feng [Tianli.Feng2011@gmail.com](mailto:Tianli.Feng2011@gmail.com)
 - Xiulin Ruan [ruan@purdue.edu](mailto:ruan@purdue.edu)
+- Ziqi Guo [gziqi@purdue.edu](mailto:gziqi@purdue.edu)
+- Guang Lin [guanglin@purdue.edu](mailto:guanglin@purdue.edu)
 
 References: please refer to our [GitHub homepage](https://github.com/FourPhonon)
 
 1. Feng, T. & Ruan, X. Quantum mechanical prediction of four-phonon scattering rates and reduced thermal conductivity of solids. Phys Rev B **93**, 045202 (2016).
 2. Feng, T., Lindsay, L. & Ruan, X. Four-phonon scattering significantly reduces intrinsic thermal conductivity of solids. Phys Rev B **96**, 161201 (2017).
 3. Han, Z., Yang, X., Li, W., Feng, T. & Ruan, X. FourPhonon: An extension module to ShengBTE for computing four-phonon scattering rates and thermal conductivity. Comput Phys Commun **270** (2022) 108179, https://doi.org/10.1016/j.cpc.2021.108179.
+4. Guo, Z., Han, Z., Feng, D., Lin, G. & Ruan, X. Sampling-accelerated first-principles prediction of phonon scattering rates for converged thermal conductivity and radiative properties (2023). Preprint at https://doi.org/10.48550/arXiv.2311.12935.
 
 ## The original authors of `ShengBTE` and references:
 
@@ -146,6 +150,13 @@ Here, we show some practical usage of this flag in combination with other existi
 - `onlyharmonic=.true.` and `four_phonon=.true.`: only compute four-phonon phase space
 - `convergence=.false.` and `four_phonon=.true.`: compute thermal conductivity at RTA level for both three- and four-phonon scatterings
 - `four_phonon=.true.`(`convergence` is default to be .true.): compute thermal conductivity with three-phonon iterative scheme but treat four-phonon scatterings at RTA level
+
+For estimating scattering rate from a sample of scattering processes, use the tags below:
+
+- `num_sample_process_3ph` and `num_sample_process_3ph_phase_space` (int, default=`-1`): the number of sample taken from each mode for estimating three-phonon phase space and scattering rate. Using `-1` means not taking any sample and do rigorous calculation. Note that when `convergence=.true.`, i.e., using iterative scheme for three-phonon scattering calculation, `num_sample_process_3ph` must be `-1`, since the sampling method works on relaxation time approximation. 
+
+- `num_sample_process_4ph` and `num_sample_process_4ph_phase_space` (int, default=`-1`): the number of sample taken from each mode for estimating four-phonon phase space and scattering rate. Using `-1` means not taking any sample and do rigorous calculation. Note that when `four_phonon=.false.`, `num_sample_process_4ph` and `num_sample_process_4ph_phase_space` must be `-1`.
+
 
 *Note that: all other parameters in `CONTROL` file, like temperature or q-mesh, apply to both three- and four-phonon processes. `nanowires` function is not supported in `FourPhonon` package.
 
