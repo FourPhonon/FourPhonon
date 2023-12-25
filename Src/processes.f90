@@ -1074,7 +1074,7 @@ contains
       end do ! iter
     end if
    ! ----------- sampling method add -----------
-    N_plus = INT(REAL(N_plus)/num_sample_process_3ph_phase_space*Nbands*nptk*Nbands)   ! must first do the division and then do the multiplication. Otherwise it will overflow the max of int32
+    N_plus = INT(REAL(N_plus, 8)/num_sample_process_3ph_phase_space*Nbands*nptk*Nbands, 4)   ! must first do the division and then do the multiplication. Otherwise it will overflow the max of int32
     P_plus = P_plus*Nbands*nptk*Nbands/num_sample_process_3ph_phase_space
    ! ----------- end sampling method add -----------
 
@@ -1183,7 +1183,7 @@ contains
       end do ! iter
     end if
    ! ----------- end sampling method add -----------
-    N_minus = INT(REAL(N_minus)/num_sample_process_3ph_phase_space*Nbands*nptk*Nbands)   ! must first do the division and then do the multiplication. Otherwise it will overflow the max of int32
+    N_minus = INT(REAL(N_minus, 8)/num_sample_process_3ph_phase_space*Nbands*nptk*Nbands, 4)   ! must first do the division and then do the multiplication. Otherwise it will overflow the max of int32
     P_minus = P_minus*Nbands*nptk*Nbands/num_sample_process_3ph_phase_space
    ! ----------- end sampling method add -----------
 
@@ -2111,7 +2111,7 @@ contains
          end do ! iter
       end if
       ! ----------- sampling method add -----------
-      N_plusplus = INT(REAL(N_plusplus)/num_sample_process_4ph_phase_space*total_process)    ! must first do the division and then do the multiplication. 
+      N_plusplus = INT(REAL(N_plusplus, 8)/num_sample_process_4ph_phase_space*total_process, 8)    ! must first do the division and then do the multiplication. 
                                                                                              ! Otherwise it will overflow the max of int32
       P_plusplus = P_plusplus*total_process/num_sample_process_4ph_phase_space
       ! ----------- end sampling method add -----------
@@ -2200,7 +2200,7 @@ contains
             iter = iter + 1
          end do ! iter
        end if
-      N_plusminus = INT(REAL(N_plusminus)/num_sample_process_4ph_phase_space*total_process)    ! must first do the division and then do the multiplication. 
+      N_plusminus = INT(REAL(N_plusminus, 8)/num_sample_process_4ph_phase_space*total_process, 8)    ! must first do the division and then do the multiplication. 
                                                                                                ! Otherwise it will overflow the max of int32
       P_plusminus = P_plusminus*total_process/num_sample_process_4ph_phase_space
   end subroutine
@@ -2291,7 +2291,7 @@ contains
        end if
 
       ! ----------- sampling method add -----------
-      N_minusminus = INT(REAL(N_minusminus)/num_sample_process_4ph_phase_space*total_process)    ! must first do the division and then do the multiplication. 
+      N_minusminus = INT(REAL(N_minusminus, 8)/num_sample_process_4ph_phase_space*total_process, 8)    ! must first do the division and then do the multiplication. 
                                                                                                  ! Otherwise it will overflow the max of int32
       P_minusminus = P_minusminus*total_process/num_sample_process_4ph_phase_space
       ! ----------- end sampling method add -----------
