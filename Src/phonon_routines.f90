@@ -1,31 +1,3 @@
-!  FourPhonon: An extension module to ShengBTE for computing four phonon anharmonicity
-!  Copyright (C) 2021-2023 Zherui Han <zrhan@purdue.edu>
-!  Copyright (C) 2021 Xiaolong Yang <xiaolongyang1990@gmail.com>
-!  Copyright (C) 2021 Wu Li <wu.li.phys2011@gmail.com>
-!  Copyright (C) 2021 Tianli Feng <Tianli.Feng2011@gmail.com>
-!  Copyright (C) 2021-2023 Xiulin Ruan <ruan@purdue.edu>
-!  Copyright (C) 2023 Ziqi Guo <gziqi@purdue.edu>
-!  Copyright (C) 2023 Guang Lin <guanglin@purdue.edu>
-!
-!  ShengBTE, a solver for the Boltzmann Transport Equation for phonons
-!  Copyright (C) 2012-2017 Wu Li <wu.li.phys2011@gmail.com>
-!  Copyright (C) 2012-2017 Jesús Carrete Montaña <jcarrete@gmail.com>
-!  Copyright (C) 2012-2017 Nebil Ayape Katcho <nebil.ayapekatcho@cea.fr>
-!  Copyright (C) 2012-2017 Natalio Mingo Bisquert <natalio.mingo@cea.fr>
-!
-!  This program is free software: you can redistribute it and/or modify
-!  it under the terms of the GNU General Public License as published by
-!  the Free Software Foundation, either version 3 of the License, or
-!  (at your option) any later version.
-!
-!  This program is distributed in the hope that it will be useful,
-!  but WITHOUT ANY WARRANTY; without even the implied warranty of
-!  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-!  GNU General Public License for more details.
-!
-!  You should have received a copy of the GNU General Public License
-!  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 ! Routines used to calculate the phonon spectrum.
 module phonon_routines
   use misc
@@ -73,6 +45,9 @@ contains
     ! flag in the CONTROL file.
     if(espresso) then
        call phonon_espresso(kspace(ii:jj,:),omega_reduce(ii:jj,:),&
+            velocity_reduce(ii:jj,:,:),eigenvect_reduce(ii:jj,:,:))
+    else if (tdep) then
+       call phonon_tdep(kspace(ii:jj,:),omega_reduce(ii:jj,:),&
             velocity_reduce(ii:jj,:,:),eigenvect_reduce(ii:jj,:,:))
     else
        call phonon_phonopy(kspace(ii:jj,:),omega_reduce(ii:jj,:),&
@@ -700,4 +675,541 @@ contains
     deallocate(rwork)
     deallocate(omega2)
   end subroutine phonon_espresso
+
+  ! Compute phonon properties, TDEP (Temperature Dependent Effective Potential) style
+  ! Parts of the codes are adapted from TDEP source codes https://ollehellman.github.io/ (MIT license)
+  ! First version: 2021/06/11; Last edited: 2023/12/04
+  subroutine phonon_tdep(kpoints,omegas,velocities,eigenvect)
+    implicit none
+ 
+    real(kind=8),intent(in) :: kpoints(:,:)
+    real(kind=8),intent(out) :: omegas(:,:),velocities(:,:,:)
+    complex(kind=8),optional,intent(out) :: eigenvect(:,:,:)
+ 
+    integer(kind=4) :: ntype,nat
+    integer(kind=4) :: i,j,ipol,jpol,iat,jat,idim,jdim,m1,m2,m3,ik
+    integer(kind=4) :: ndim,nk,nwork,ncell_g(3)
+    integer(kind=8),allocatable :: tipo(:)
+    real(kind=8) :: alpha,geg,gmax,volume_r,dnrm2
+    real(kind=8) :: cell_r(1:3,0:3),cell_g(1:3,0:3)
+    real(kind=8) :: rdotq
+    real(kind=8), allocatable :: omega2(:),rwork(:)
+    real(kind=8),allocatable :: k(:,:),mass(:),r(:,:),eps(:,:),mm(:,:),rr(:,:,:),zeff(:,:,:)
+    complex(kind=8) :: cfac
+    complex(kind=8),allocatable :: eigenvectors(:,:),work(:)
+    complex(kind=8),allocatable :: dyn(:,:),dyn_s(:,:,:),dyn_g(:,:,:)
+    complex(kind=8),allocatable :: ddyn(:,:,:),ddyn_s(:,:,:,:),ddyn_g(:,:,:,:)
+    complex(kind=8),allocatable :: dyn_loc(:,:,:,:,:),ddyn_loc(:,:,:,:,:,:),&
+                                   dyn_2_l_tmp(:,:,:,:),ddyn_2_l_tmp(:,:,:,:,:)
+    real(kind=8),allocatable :: ifc_tdep(:,:,:,:),lv2(:,:,:)
+    integer,allocatable   :: a2(:,:),neighbor(:)
+    integer ::atom1,atom2,ii,jj,kk,maxneighbor
+ 
+    real(kind=8),parameter :: bohr2nm=0.052917721092,toTHz=20670.687,&
+    massfactor=1.8218779*6.022e-4,lo_bohr_to_A= 0.52917721067d0,&
+    lo_Hartree_to_eV= 27.21138602d0
+    real(kind=8) :: lo_forceconstant_2nd_eVA_to_HartreeBohr,&
+                     lo_eV_to_Hartree,lo_A_to_bohr
+    lo_A_to_bohr =1/lo_bohr_to_A
+    lo_eV_to_Hartree=1/lo_Hartree_to_eV
+    lo_forceconstant_2nd_eVA_to_HartreeBohr=lo_eV_to_Hartree/(lo_A_to_bohr**2)
+ 
+ 
+    !> Basic things, similar to QE format
+    nwork=1
+    nk=size(kpoints,1)
+    ntype=nelements
+    nat=natoms
+    ndim=3*nat
+    allocate(omega2(nbands))
+    allocate(work(nwork))
+    allocate(rwork(max(1,9*natoms-2)))
+    allocate(k(nk,3))
+    allocate(mass(ntype))
+    allocate(tipo(nat))
+    allocate(r(nat,3))
+    allocate(eps(3,3))
+    allocate(zeff(nat,3,3))
+    allocate(mm(nat,nat))
+    allocate(rr(nat,nat,3))
+    allocate(dyn(ndim,ndim))
+    allocate(dyn_s(nk,ndim,ndim))
+    allocate(dyn_g(nk,ndim,ndim))
+    allocate(ddyn(ndim,ndim,3))
+    allocate(ddyn_s(nk,ndim,ndim,3))
+    allocate(ddyn_g(nk,ndim,ndim,3))
+    allocate(eigenvectors(ndim,ndim))
+    allocate(dyn_loc(3,3,nat,nat,nk),ddyn_loc(3,3,nat,nat,nk,3))
+    allocate(dyn_2_l_tmp(3,3,nat,nat),ddyn_2_l_tmp(3,3,nat,nat,3))
+    allocate(neighbor(nat))
+    mass=masses/massfactor
+    tipo=types
+    r=transpose(matmul(lattvec,positions))/bohr2nm
+    eps=transpose(epsilon)
+    do i=1,nat
+      zeff(i,:,:)=transpose(born(:,:,i))
+    end do
+    k=kpoints*bohr2nm
+    cell_r(:,1:3)=transpose(lattvec)/bohr2nm
+    volume_r=V/bohr2nm**3
+    do i=1,3
+       cell_r(i,0)=dnrm2(3,cell_r(i,1:3),1)
+    end do
+    cell_g(:,1:3)=transpose(rlattvec)*bohr2nm
+    do i=1,3
+       cell_g(i,0)=dnrm2(3,cell_g(i,1:3),1)
+    end do
+    do i=1,nat
+      mm(i,i)=mass(tipo(i))
+      rr(i,i,:)=0 
+      do j=i+1,nat
+         mm(i,j)=sqrt(mass(tipo(i))*mass(tipo(j)))
+         rr(i,j,1:3)=r(i,1:3)-r(j,1:3)
+         mm(j,i)=mm(i,j)
+         rr(j,i,1:3)=-rr(i,j,1:3)
+      end do
+    end do
+    ! These parameters are for Ewald summation: not exactly how TDEP does it but gives satisfactory results
+    gmax=14.
+    alpha=(2.*pi*bohr2nm/dnrm2(3,lattvec(:,1),1))**2
+    geg=gmax*4.*alpha
+    ncell_g=int(sqrt(geg)/cell_g(:,0))+1
+ 
+    !> Read in TDEP force constants and construct dyn
+    dyn_loc = 0.0d0
+    maxneighbor = 200
+    allocate(ifc_tdep(3,3,maxneighbor,nat),a2(maxneighbor,nat),lv2(maxneighbor,3,nat))
+    open(123,File='infile.forceconstant',status='old')
+    read(123,*)
+    read(123,*)
+    do atom1 = 1, nat
+       read(123,*)neighbor(atom1)
+       do j =1, neighbor(atom1)
+          read(123,*)a2(j,atom1)
+          atom2=a2(j,atom1)
+          read(123,*)lv2(j,1:3,atom1)
+          lv2(j,1:3,atom1) = lv2(j,1,atom1)*cell_r(1,1:3)+lv2(j,2,atom1)*cell_r(2,1:3)+lv2(j,3,atom1)*cell_r(3,1:3)
+          do ii=1, 3
+             read(123,*)ifc_tdep(ii,1:3,j,atom1)
+             ifc_tdep(ii,1:3,j,atom1)=ifc_tdep(ii,1:3,j,atom1)*lo_forceconstant_2nd_eVA_to_HartreeBohr*2
+          end do
+         end do
+    end do
+    close(123)
+    ! Fourier Transformation
+    do ik=1, nk
+       do atom1=1, nat
+          do j=1, neighbor(atom1)
+             atom2=a2(j,atom1)
+             rdotq = (k(ik,1)*lv2(j,1,atom1) + k(ik,2)*lv2(j,2,atom1) +k(ik,3)*lv2(j,3,atom1) )
+             cfac = cmplx(cos(rdotq),sin(rdotq),kind=8)
+             dyn_loc(1:3,1:3,atom1,atom2,ik) = dyn_loc(1:3,1:3,atom1,atom2,ik) + cfac*ifc_tdep(1:3,1:3,j,atom1)
+             do ii = 1,3
+             do jj = 1,3
+                ddyn_loc(ii,jj,atom1,atom2,ik,1:3) = ddyn_loc(ii,jj,atom1,atom2,ik,1:3)+&
+                cfac*ifc_tdep(ii,jj,j,atom1)*iunit*lv2(j,1:3,atom1)
+             end do
+             end do
+          end do
+       end do
+    end do
+    deallocate(ifc_tdep,a2,lv2)
+    ddyn_s=0.
+    dyn_s =0.
+    !Transform the dimension of the matrix in TDEP format to ShengBTE
+    do ik  = 1,nk
+       do iat =1, nat
+          do jat =1, nat
+             do ipol=1,3
+                do jpol=1,3
+                   idim = (iat-1)*3+ipol
+                   jdim = (jat-1)*3+jpol
+                   dyn_s(ik,idim,jdim) = dyn_loc(ipol,jpol,iat,jat,ik)
+                   ddyn_s(ik,idim,jdim,1:3)= ddyn_loc(ipol,jpol,iat,jat,ik,1:3)
+                end do
+             end do
+          end do
+       end do
+    end do
+ 
+    !> NAC part
+    ! Make sure you input the force constants with long-range subtracted by TDEP
+    dyn_g = 0.0d0
+    ddyn_g = 0.0d0
+    if ( nonanalytic ) then
+      do ik = 1, nk
+         dyn_2_l_tmp = (0.0d0,0.0d0)
+         ddyn_2_l_tmp = (0.0d0,0.0d0)
+         call rgd_blk(dyn_2_l_tmp,ddyn_2_l_tmp,k(ik,:),nat,rr,eps,zeff,Ewald,ncell_g,cell_g,volume_r,.TRUE.)
+         ! Transfer back to ShengBTE 2 indices
+         do iat =1, nat
+            do jat =1, nat
+               do ipol=1,3
+                  do jpol=1,3
+                     idim = (iat-1)*3+ipol
+                     jdim = (jat-1)*3+jpol
+                     dyn_g(ik,idim,jdim) = dyn_2_l_tmp(ipol,jpol,jat,iat)
+                     ddyn_g(ik,idim,jdim,1:3)= ddyn_2_l_tmp(ipol,jpol,jat,iat,1:3)
+                  end do
+               end do
+            end do
+         end do
+      end do      
+    end if
+ 
+    !> Solve eigen problems
+    ! Once the dynamical matrix has been built, the frequencies and
+    ! group velocities are extracted exactly like in the previous
+    ! subroutine.
+    do ik=1,nk
+      dyn(:,:)=dyn_s(ik,:,:)+dyn_g(ik,:,:)
+      !call hermi(dyn(:,:), nat)
+      ddyn(:,:,:)=ddyn_s(ik,:,:,:)+ddyn_g(ik,:,:,:)
+      do ipol=1,3
+         do jpol=1,3
+            do iat=1,nat
+               do jat=1,nat
+                  idim=(iat-1)*3+ipol
+                  jdim=(jat-1)*3+jpol
+                  dyn(idim,jdim)=dyn(idim,jdim)/mm(iat,jat)
+                  ddyn(idim,jdim,1:3)=ddyn(idim,jdim,1:3)/mm(iat,jat)
+               end do
+            end do
+         end do
+      end do
+ 
+      call zheev("V","U",nbands,dyn(:,:),nbands,omega2,work,-1,rwork,i)
+      if(real(work(1)).gt.nwork) then
+         nwork=nint(2*real(work(1)))
+         deallocate(work)
+         allocate(work(nwork))
+      end if
+      call zheev("V","U",nbands,dyn(:,:),nbands,omega2,work,nwork,rwork,i)
+ 
+      if(present(eigenvect)) then
+         eigenvect(ik,:,:)=transpose(dyn(:,:))
+      end if
+ 
+      omegas(ik,:)=sign(sqrt(abs(omega2)),omega2)
+ 
+      do i=1,nbands
+         do j=1,3
+            velocities(ik,i,j)=real(dot_product(dyn(:,i),&
+                 matmul(ddyn(:,:,j),dyn(:,i))))
+         end do
+         velocities(ik,i,:)=velocities(ik,i,:)/(2.*omegas(ik,i))
+      end do
+   end do
+   ! Return the result to the units used in the rest of ShengBTE.
+   omegas=omegas*toTHz
+   velocities=velocities*toTHz*bohr2nm
+   deallocate(k)
+   deallocate(mass)
+   deallocate(tipo)
+   deallocate(r)
+   deallocate(eps)
+   deallocate(zeff)
+   deallocate(mm)
+   deallocate(rr)
+   deallocate(dyn)
+   deallocate(dyn_s)
+   deallocate(dyn_g)
+   deallocate(ddyn)
+   deallocate(ddyn_s)
+   deallocate(ddyn_g)
+   deallocate(eigenvectors)
+   deallocate(work)
+   deallocate(rwork)
+   deallocate(omega2)
+
+ end subroutine phonon_tdep
+
+ !> subroutine for polar materials, called by phonon_tdep
+ recursive subroutine rgd_blk(dyn,ddyn,q,nat,rr,epsil,zeu,lambda,ncell_g,bg,volume_r,chgmult)
+   implicit none 
+ 
+   integer     , intent(in)               :: nat
+   real(kind=8), dimension(3), intent(in) :: q
+   integer(kind=4), intent(in)            :: ncell_g(3)
+   real(KIND=8), intent(in)               :: epsil(3,3),zeu(nat,3,3),rr(nat,nat,3),lambda,bg(1:3,0:3),volume_r
+   complex(kind=8), intent(out)           :: dyn(3,3,nat,nat),ddyn(3,3,nat,nat,3)
+   logical, intent(in)                    :: chgmult
+ 
+   logical :: mult
+   complex(kind=8) :: expikr,Chi
+   real(kind=8), dimension(3,3) :: kk
+   real(kind=8), dimension(3) :: Gvec,Kvec,tauvec,Keps
+   real(kind=8) :: inv4lambda2,knorm,expLambdaKnorm,ikr,invknorm,partialChi,f0,Ksum
+   integer      :: m1,m2,m3,i,j,na,nb,ii,jj
+   complex(kind=8) ::D(3,3,nat,nat),DL1(3,3,nat,nat),D0(3,3,nat,nat),&
+                           D2(3,3,nat,nat),D3(3,3,nat,nat),ddyn_temp(3,3,nat,nat,3),&
+                           DQLx1(3,3,nat,nat),DQLy1(3,3,nat,nat),DQLz1(3,3,nat,nat),&
+                           Dx0(3,3,nat,nat),Dy0(3,3,nat,nat),Dz0(3,3,nat,nat)
+   Real(kind=8) :: dynamical_reciprocal(3,3,nat,nat),polar_onsite_correction(3,3,nat),&
+                     m(3,3),re,im
+   Real(kind=8) :: dynmat(3,3,nat,nat),qdir(3),f0_G,Kx,Ky,Kz
+   real(kind=8),dimension(3,3) :: kkx,kky,kkz
+   complex(kind=8),dimension(3)::v0
+ 
+   if ( chgmult ) then
+      mult=.true.
+   else
+      mult=.false.
+   end if
+ 
+   inv4lambda2=1.0d0/(4.0d0*(lambda**2))
+   DQLx1=0.0d0
+   DQLy1=0.0d0
+   DQLz1=0.0d0
+   DL1=0.0d0
+   do m1=-ncell_g(1),ncell_g(1)
+      do m2=-ncell_g(2),ncell_g(2)
+         do m3=-ncell_g(3),ncell_g(3)
+            Gvec=m1*bg(1,1:3)+m2*bg(2,1:3)+m3*bg(3,1:3)
+            Kvec=(Gvec+q)!*2*pi!/celldm(1)
+            if((Kvec(1)*Kvec(1)+Kvec(2)*Kvec(2)+Kvec(3)*Kvec(3))**0.5d0 .lt. 1e-10)cycle
+            knorm=dot_product(Kvec,matmul(epsil,Kvec))
+            invknorm=1.0d0/knorm
+            expLambdaKnorm=exp(-knorm*inv4lambda2)
+            ! Half of the Chi-function
+            partialChi=expLambdaKnorm*invknorm
+            ! Kronecker product K \otimes K
+            kk(:,1)=Kvec(1:3)*Kvec(1)
+            kk(:,2)=Kvec(1:3)*Kvec(2)
+            kk(:,3)=Kvec(1:3)*Kvec(3)
+            Kx=Kvec(1)
+            Ky=Kvec(2)
+            Kz=Kvec(3)
+            kkx(:,1) = [ 2*Kx,      Ky,       Kz     ]
+            kkx(:,2) = [   Ky,      0.0d0,   0.0d0   ]
+            kkx(:,3) = [   Kz, 0.0d0,   0.0d0   ]
+ 
+            kky(:,1) = [   0.0d0,   Kx,      0.0d0   ]
+            kky(:,2) = [   Kx,      2*Ky,    Kz      ]
+            kky(:,3) = [   0.0d0,   Kz,      0.0d0   ]
+ 
+            kkz(:,1) = [   0.0d0,   0.0d0,   Kx      ]
+            kkz(:,2) = [   0.0d0,   0.0d0,   Ky      ]
+            kkz(:,3) = [   Kx,      Ky,      2*Kz    ]
+ 
+            Keps=2*matmul(Kvec,epsil) 
+            Keps=Keps*(invknorm+inv4lambda2)
+ 
+            do na=1,nat
+            do nb=na,nat
+               tauvec=rr(nb,na,:) ! or rr(nb,na,:)
+               ikr=dot_product(Kvec,tauvec) !*celldm(1)
+               !expikr=cmplx( cos(ikr) , sin(ikr) ,kind=8)
+               expikr=phexp(ikr)
+               chi=partialChi*expikr
+               DL1(:,:,na,nb)=DL1(:,:,na,nb)+kk*chi
+               v0=iunit*tauvec-Keps
+               DQLx1(:,:,na,nb)=DQLx1(:,:,na,nb)+kkx*chi+kk*chi*v0(1)
+               DQLy1(:,:,na,nb)=DQLy1(:,:,na,nb)+kky*chi+kk*chi*v0(2)
+               DQLz1(:,:,na,nb)=DQLz1(:,:,na,nb)+kkz*chi+kk*chi*v0(3)
+            end do
+            end do
+         end do
+      end do
+   end do
+   DL1=DL1*4.*pi/volume_r
+   !ddyn
+   DQLx1=DQLx1*4.*pi/volume_r
+   DQLy1=DQLy1*4.*pi/volume_r
+   DQLz1=DQLz1*4.*pi/volume_r
+   ! Fix the other half
+      D0 =0.0d0
+      Dx0=0.0d0
+      Dy0=0.0d0
+      Dz0=0.0d0
+      do na=1,nat
+      do nb=na,nat
+         if(na .eq. nb)then
+            D0(:,:,na,nb)=DL1(:,:,na,nb)
+            Dx0(:,:,na,nb)=DQLx1(:,:,na,nb)
+            Dy0(:,:,na,nb)=DQLy1(:,:,na,nb)
+            Dz0(:,:,na,nb)=DQLz1(:,:,na,nb)
+         else
+            D0(:,:,na,nb)=DL1(:,:,na,nb)
+            Dx0(:,:,na,nb)=DQLx1(:,:,na,nb)
+            Dy0(:,:,na,nb)=DQLy1(:,:,na,nb)
+            Dz0(:,:,na,nb)=DQLz1(:,:,na,nb)
+            do i=1,3
+            do j=1,3
+               D0(j,i,nb,na)=conjg(D0(i,j,na,nb))
+               Dx0(j,i,nb,na)=conjg(Dx0(i,j,na,nb))
+               Dy0(j,i,nb,na)=conjg(Dy0(i,j,na,nb))
+               Dz0(j,i,nb,na)=conjg(Dz0(i,j,na,nb))
+            enddo
+            enddo
+         endif
+      enddo
+      enddo
+ 
+      if ( mult ) then
+         ! Multiply in the charges
+         !
+         ddyn=0.0d0
+         D=0.0d0
+         do na=1,nat
+            do nb=1,nat
+               do j=1,3
+                  do i=1,3
+                     do jj=1,3
+                     do ii=1,3
+                        D(i,j,nb,na)=D(i,j,nb,na)+zeu(na,i,ii)*zeu(nb,j,jj)*D0(ii,jj,nb,na)
+                        ddyn(i,j,nb,na,1)=ddyn(i,j,nb,na,1)+zeu(nb,i,ii)*zeu(na,j,jj)*Dx0(ii,jj,nb,na)
+                        ddyn(i,j,nb,na,2)=ddyn(i,j,nb,na,2)+zeu(nb,i,ii)*zeu(na,j,jj)*Dy0(ii,jj,nb,na)
+                        ddyn(i,j,nb,na,3)=ddyn(i,j,nb,na,3)+zeu(nb,i,ii)*zeu(na,j,jj)*Dz0(ii,jj,nb,na)
+                     enddo
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+         ! Add the on-site correction
+         D2=0.0d0
+         call rgd_blk(D2,ddyn_temp,[0.0d0,0.0d0,0.0d0],nat,rr,epsil,zeu,lambda,ncell_g,bg,volume_r,.False.)
+ 
+         dynamical_reciprocal=real(D2)
+         D3=0.0d0
+         do na=1,nat
+         do nb=1,nat
+            do j=1,3
+            do i=1,3
+               do jj=1,3
+               do ii=1,3
+                  D3(i,j,na,nb)=D3(i,j,na,nb)+zeu(na,i,ii)*zeu(nb,j,jj)*dynamical_reciprocal(ii,jj,na,nb)
+               end do
+               end do
+            end do
+            end do
+         end do
+         end do
+         do na=1,nat
+            m=0.0d0
+            do nb=1,nat
+               m=m+D3(:,:,na,nb)
+            end do
+            polar_onsite_correction(:,:,na)=-m
+         enddo
+ 
+         do na=1,nat
+            D(:,:,na,na)=D(:,:,na,na)+polar_onsite_correction(:,:,na)
+         end do
+      else
+         D=D0
+         dyn=D0
+      end if
+ 
+ 
+      !!!chop the ugly number 
+      if (chgmult) then
+         do na=1,nat
+         do nb=1,nat
+            do i=1,3
+            do j=1,3
+               re=real(D(i,j,na,nb))
+               im=aimag(D(i,j,na,nb))
+               if(abs( re ).lt. 1e-10) re=0.0d0
+               if(abs( im ).lt. 1e-10) im=0.0d0
+               D(i,j,na,nb)=cmplx(re,im,kind=8)
+            end do
+            end do
+         end do
+         end do
+      end if
+ 
+      !!Are we gamma
+      ! We abandon the correction at Gamma point. In Phonopy subroutines we have a comment:
+      ! No correction is applied exactly at \Gamma in
+      ! order not to rely on guesses about directions.
+      dynmat=0.0d0
+      ! IF(abs( q(1)) .lt. 1e-10 .and. abs (q(2)) .lt. 1e-10 .and. abs (q(3)) .lt. 1e-10) then
+      !    qdir(1)=1.0d0
+      !    qdir(2)=0.0d0
+      !    qdir(3)=0.0d0
+      !    f0_G= 0.0d0
+      !    do j=1,3
+      !    Do i=1,3
+      !       f0_G=f0_G+qdir(i)*epsil(i,j)*qdir(j)
+      !    Enddo
+      !    Enddo
+      !    f0_G=1.0d0/f0_G!*4.0d0*pi/omega
+      !    Do na=1,nat
+      !    Do nb=1,nat
+      !       Do i=1,3
+      !       Do j=1,3
+      !          dynmat(i,j,na,nb)=dot_product(qdir,zeu(na,:,i)*dot_product(qdir,zeu(nb,:,j)))*f0_G
+      !       Enddo
+      !       Enddo
+      !    Enddo
+      !    Enddo
+      ! ENDIF
+      !!add together
+      if(chgmult)then
+         dyn=(dynmat+D)*2.0d0
+         ddyn=ddyn*2.0d0
+      end if
+ 
+  end subroutine rgd_blk
+ 
+ 
+  subroutine hermi(dyn_2, nat)
+    implicit none
+    INTEGER, INTENT(IN)            :: nat
+    COMPLEX(KIND=8), INTENT(INOUT) :: dyn_2(3*nat,3*nat) 
+    INTEGER                        :: dir1, dir2, atom1, atom2, mu, nu
+    COMPLEX(KIND=8)                :: dyn_hermi(3,3,nat,nat)
+    COMPLEX(KIND=8)                :: dyn_tmp(3,3,nat,nat)
+    !
+    !
+    DO atom1 = 1, nat
+       DO atom2 = 1, nat
+          DO dir1 = 1, 3
+             DO dir2 = 1, 3
+                !
+                mu = (atom1-1)*3+dir1
+                nu = (atom2-1)*3+dir2
+                dyn_tmp(dir1,dir2,atom1,atom2) = dyn_2(mu,nu)
+                !
+             END DO
+          END DO
+       END DO
+    END DO
+    !
+    DO atom1 = 1, nat
+       DO atom2 = 1, nat
+          DO dir1 = 1, 3
+             DO dir2 = 1, 3
+                !
+                dyn_hermi(dir1,dir2,atom1,atom2) = 0.50d0 * ( dyn_tmp(dir1,dir2,atom1,atom2) + CONJG(dyn_tmp(dir2,dir1,atom2,atom1)) )
+                !
+             END DO
+          END DO
+       END DO
+    END DO
+    !
+    DO atom1 = 1, nat
+       DO atom2 = 1, nat
+          DO dir1 = 1, 3
+             DO dir2 = 1, 3
+                !
+                mu = (atom1-1)*3+dir1
+                nu = (atom2-1)*3+dir2
+                dyn_2(mu,nu) = dyn_hermi(dir1,dir2,atom1,atom2)
+                !
+             END DO
+          END DO
+       END DO
+    END DO
+    !
+    !
+    RETURN
+
+ end subroutine
+
+
+
+
 end module phonon_routines

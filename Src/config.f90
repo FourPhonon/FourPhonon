@@ -1,31 +1,3 @@
-!  FourPhonon: An extension module to ShengBTE for computing four phonon anharmonicity
-!  Copyright (C) 2021-2023 Zherui Han <zrhan@purdue.edu>
-!  Copyright (C) 2021 Xiaolong Yang <xiaolongyang1990@gmail.com>
-!  Copyright (C) 2021 Wu Li <wu.li.phys2011@gmail.com>
-!  Copyright (C) 2021 Tianli Feng <Tianli.Feng2011@gmail.com>
-!  Copyright (C) 2021-2023 Xiulin Ruan <ruan@purdue.edu>
-!  Copyright (C) 2023 Ziqi Guo <gziqi@purdue.edu>
-!  Copyright (C) 2023 Guang Lin <guanglin@purdue.edu>
-!
-!  ShengBTE, a solver for the Boltzmann Transport Equation for phonons
-!  Copyright (C) 2012-2017 Wu Li <wu.li.phys2011@gmail.com>
-!  Copyright (C) 2012-2017 Jesús Carrete Montaña <jcarrete@gmail.com>
-!  Copyright (C) 2012-2017 Nebil Ayape Katcho <nebil.ayapekatcho@cea.fr>
-!  Copyright (C) 2012-2017 Natalio Mingo Bisquert <natalio.mingo@cea.fr>
-!
-!  This program is free software: you can redistribute it and/or modify
-!  it under the terms of the GNU General Public License as published by
-!  the Free Software Foundation, either version 3 of the License, or
-!  (at your option) any later version.
-!
-!  This program is distributed in the hope that it will be useful,
-!  but WITHOUT ANY WARRANTY; without even the implied warranty of
-!  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-!  GNU General Public License for more details.
-!
-!  You should have received a copy of the GNU General Public License
-!  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 ! Variables and routines used to read and store the configuration.
 module config
   use iso_fortran_env
@@ -46,17 +18,17 @@ module config
   integer(kind=4) :: maxiter,nticks
   real(kind=8) :: T,scalebroad,rmin,rmax,dr,eps
   real(kind=8) :: T_min,T_max,T_step,omega_max,Length
-   ! ----------- sampling method add -----------
+  real(kind=8) :: Ewald ! used for polar
+
   integer(kind=4) :: num_sample_process_3ph,num_sample_process_3ph_phase_space, num_sample_process_4ph, num_sample_process_4ph_phase_space
   namelist /parameters/ T,scalebroad,rmin,rmax,dr,maxiter,nticks,eps,&
-           T_min,T_max,T_step,omega_max,Length, &
+           T_min,T_max,T_step,omega_max,Length,Ewald, &
            num_sample_process_3ph,num_sample_process_3ph_phase_space, num_sample_process_4ph,num_sample_process_4ph_phase_space
-   ! ----------- end sampling method add -----------
 
-  logical :: nonanalytic,convergence,isotopes,autoisotopes,nanowires,onlyharmonic,espresso,normal,umklapp,&
+  logical :: nonanalytic,convergence,isotopes,autoisotopes,nanowires,onlyharmonic,espresso,tdep,normal,umklapp,&
              four_phonon,four_phonon_iteration,nanolength
   namelist /flags/ nonanalytic,convergence,isotopes,autoisotopes,&
-       nanowires,onlyharmonic,espresso,normal,umklapp,four_phonon,four_phonon_iteration,nanolength
+       nanowires,onlyharmonic,espresso,tdep,normal,umklapp,four_phonon,four_phonon_iteration,nanolength
 
   integer(kind=4) :: nbands,nptk,nwires
   real(kind=8) :: cgrid,V,rV,rlattvec(3,3),slattvec(3,3)
@@ -156,7 +128,8 @@ contains
     nticks=100
     eps=1e-5
     omega_max=1.d100
-    Length=1
+    Length=1.d0
+    Ewald=-1.d0 ! -1 means not set
    ! ----------- sampling method add -----------
     num_sample_process_3ph = -1
     num_sample_process_3ph_phase_space = -1
@@ -191,6 +164,7 @@ contains
     nanowires=.false.
     onlyharmonic=.false.
     espresso=.false.
+    tdep=.false.
     
     ! Four-phonon namelist
     four_phonon=.false.
@@ -208,6 +182,16 @@ contains
     end if
     if(nanowires.and.norientations.eq.0) then
        if(myid.eq.0)write(error_unit,*) "Error: nanowires=.TRUE. but norientations=0"
+       call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+       call MPI_FINALIZE(ierr)
+    end if
+    if(tdep .and. nonanalytic .and. Ewald.eq.-1.0 )then
+       if(myid.eq.0)write(error_unit,*) "Error: tdep=.TRUE. & nonanalytic=.TRUE. but Ewald parameter is not supplied"
+       call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+       call MPI_FINALIZE(ierr)
+    end if
+    if(tdep.eq. .false. .and. Ewald.ne.-1.0  )then
+       if(myid.eq.0)write(error_unit,*) "Error: tdep=.FALSE. but Ewald parameter is given"
        call MPI_BARRIER(MPI_COMM_WORLD,ierr)
        call MPI_FINALIZE(ierr)
     end if

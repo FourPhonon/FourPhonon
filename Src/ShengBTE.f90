@@ -1,11 +1,13 @@
-!  FourPhonon: An extension module to ShengBTE for computing four phonon anharmonicity
+!  FourPhonon: An extension module to ShengBTE for computing four-phonon scattering rates and thermal conductivity
 !  Copyright (C) 2021-2023 Zherui Han <zrhan@purdue.edu>
-!  Copyright (C) 2021 Xiaolong Yang <xiaolongyang1990@gmail.com>
+!  Copyright (C) 2021-2022 Xiaolong Yang <xiaolongyang1990@gmail.com>
 !  Copyright (C) 2021 Wu Li <wu.li.phys2011@gmail.com>
 !  Copyright (C) 2021 Tianli Feng <Tianli.Feng2011@gmail.com>
 !  Copyright (C) 2021-2023 Xiulin Ruan <ruan@purdue.edu>
+!  Copyright (C) 2021 Wenjiang Zhou <wjzhou@stu.pku.edu.cn>
 !  Copyright (C) 2023 Ziqi Guo <gziqi@purdue.edu>
 !  Copyright (C) 2023 Guang Lin <guanglin@purdue.edu>
+!  Copyright (C) 2023 Abdulaziz Alkandari <aalkanda@purdue.edu>
 !
 !  ShengBTE, a solver for the Boltzmann Transport Equation for phonons
 !  Copyright (C) 2012-2017 Wu Li <wu.li.phys2011@gmail.com>
@@ -42,7 +44,7 @@ program ShengBTE
   use dos_routines
   use gruneisen
   use integrals
-  ! use omp_lib
+  use omp_lib
   implicit none
 
   include "mpif.h"
@@ -109,10 +111,6 @@ program ShengBTE
   character(len=30) :: tempstring1,tempstring2,tempstring3
 
   real(kind=8) :: dnrm2
-
-   ! ----------- sampling method add -----------
-  character(len=4) strmyid
-   ! ----------- end sampling method add -----------
 
   call MPI_INIT_thread(MPI_THREAD_FUNNELED,PROVIDED,ierr)
   call MPI_COMM_RANK(MPI_COMM_WORLD,myid,ierr)
@@ -706,14 +704,6 @@ program ShengBTE
   if (myid.eq.0) print*, "Info: start calculating kappa"
 
 
-   ! ----------- sampling method add -----------
-   write(strmyid,'(I4)') myid
-   if (myid.eq.0) then
-      write(*,*) 'Info: numprocs: ', numprocs
-   end if
-   ! ----------- end sampling method add -----------
-
-
   do Tcounter=1,CEILING((T_max-T_min)/T_step)+1
      T=T_min+(Tcounter-1)*T_step
      if ((T.gt.T_max).and.(T.lt.(T_max+1.d0)))  exit
@@ -730,9 +720,21 @@ program ShengBTE
              Indof2ndPhonon_plus,Indof3rdPhonon_plus,Gamma_plus,&
              Indof2ndPhonon_minus,Indof3rdPhonon_minus,Gamma_minus,rate_scatt,&
              rate_scatt_plus,rate_scatt_minus,Pspace_plus_total,Pspace_minus_total)
-        ! Will add fou-phonon iteration capabilities when we publish
-        ! tag four_phonon_iteration is reserved here
+        if (four_phonon.and.four_phonon_iteration) then
+          call Ind_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,N_plusplus,N_plusminus,N_minusminus,&
+                Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
+                Indof2ndPhonon_plusplus,Indof3rdPhonon_plusplus,Indof4thPhonon_plusplus,Gamma_plusplus,&
+                Indof2ndPhonon_plusminus,Indof3rdPhonon_plusminus,Indof4thPhonon_plusminus,Gamma_plusminus,&
+                Indof2ndPhonon_minusminus,Indof3rdPhonon_minusminus,Indof4thPhonon_minusminus,Gamma_minusminus,&
+                rate_scatt_4ph,rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
+                Pspace_plusplus_total,Pspace_plusminus_total,Pspace_minusminus_total)
+        end if
         if (four_phonon.and.four_phonon_iteration.eq. .false.) then
+          ! ----------- sampling method add -----------
+          if(myid.eq.0) then
+             if(num_sample_process_4ph.gt.0) write(*,*) "Info: num_sample_process_4ph = ", num_sample_process_4ph
+          end if
+          ! ----------- end sampling method add -----------
           call RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
                 Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
                 rate_scatt_4ph,&
@@ -1044,11 +1046,20 @@ program ShengBTE
         if(convergence) then
            do ii=1,maxiter
               kappa_old=sum(ThConductivity,dim=1)
-            ! will add four_phonon_iteration when we publish
-            call iteration(Nlist,Nequi,ALLEquiList,TypeofSymmetry,N_plus,N_minus,&
-                    Ntotal_plus,Ntotal_minus,Indof2ndPhonon_plus,Indof3rdPhonon_plus,&
-                    Indof2ndPhonon_minus,Indof3rdPhonon_minus,energy,velocity,&
-                    Gamma_plus,Gamma_minus,tau_zero,F_n)
+              if (four_phonon_iteration) then
+               call iteration_4ph(Nlist,Nequi,ALLEquiList,TypeofSymmetry,N_plus,N_minus,Ntotal_plus,Ntotal_minus,&
+                   N_plusplus,N_plusminus,N_minusminus,Ntotal_plusplus,Ntotal_plusminus,Ntotal_minusminus,&
+                   Indof2ndPhonon_plus,Indof3rdPhonon_plus,Indof2ndPhonon_minus,Indof3rdPhonon_minus,&
+                   Indof2ndPhonon_plusplus,Indof3rdPhonon_plusplus,Indof4thPhonon_plusplus,&
+                   Indof2ndPhonon_plusminus,Indof3rdPhonon_plusminus,Indof4thPhonon_plusminus,&
+                   Indof2ndPhonon_minusminus,Indof3rdPhonon_minusminus,Indof4thPhonon_minusminus,&
+                   energy,velocity,Gamma_plus,Gamma_minus,Gamma_plusplus,Gamma_plusminus,Gamma_minusminus,tau_zero,F_n)
+              else 
+               call iteration(Nlist,Nequi,ALLEquiList,TypeofSymmetry,N_plus,N_minus,&
+                   Ntotal_plus,Ntotal_minus,Indof2ndPhonon_plus,Indof3rdPhonon_plus,&
+                   Indof2ndPhonon_minus,Indof3rdPhonon_minus,energy,velocity,&
+                   Gamma_plus,Gamma_minus,tau_zero,F_n)
+              end if
               ! Correct F_n to prevent it drifting away from the symmetry of the system.
               do ll=1,nptk
                  F_n(:,ll,:)=transpose(matmul(symmetrizers(:,:,ll),transpose(F_n(:,ll,:))))

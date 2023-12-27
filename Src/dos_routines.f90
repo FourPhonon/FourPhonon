@@ -1,31 +1,3 @@
-!  FourPhonon: An extension module to ShengBTE for computing four phonon anharmonicity
-!  Copyright (C) 2021-2023 Zherui Han <zrhan@purdue.edu>
-!  Copyright (C) 2021 Xiaolong Yang <xiaolongyang1990@gmail.com>
-!  Copyright (C) 2021 Wu Li <wu.li.phys2011@gmail.com>
-!  Copyright (C) 2021 Tianli Feng <Tianli.Feng2011@gmail.com>
-!  Copyright (C) 2021-2023 Xiulin Ruan <ruan@purdue.edu>
-!  Copyright (C) 2023 Ziqi Guo <gziqi@purdue.edu>
-!  Copyright (C) 2023 Guang Lin <guanglin@purdue.edu>
-!
-!  ShengBTE, a solver for the Boltzmann Transport Equation for phonons
-!  Copyright (C) 2012-2017 Wu Li <wu.li.phys2011@gmail.com>
-!  Copyright (C) 2012-2017 Jesús Carrete Montaña <jcarrete@gmail.com>
-!  Copyright (C) 2012-2017 Nebil Ayape Katcho <nebil.ayapekatcho@cea.fr>
-!  Copyright (C) 2012-2017 Natalio Mingo Bisquert <natalio.mingo@cea.fr>
-!
-!  This program is free software: you can redistribute it and/or modify
-!  it under the terms of the GNU General Public License as published by
-!  the Free Software Foundation, either version 3 of the License, or
-!  (at your option) any later version.
-!
-!  This program is distributed in the hope that it will be useful,
-!  but WITHOUT ANY WARRANTY; without even the implied warranty of
-!  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-!  GNU General Public License for more details.
-!
-!  You should have received a copy of the GNU General Public License
-!  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
 ! Routines to calculate the density of states and related quantities.
 module dos_routines
   use config

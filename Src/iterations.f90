@@ -1,32 +1,3 @@
-!  FourPhonon: An extension module to ShengBTE for computing four phonon anharmonicity
-!  Copyright (C) 2021-2023 Zherui Han <zrhan@purdue.edu>
-!  Copyright (C) 2021 Xiaolong Yang <xiaolongyang1990@gmail.com>
-!  Copyright (C) 2021 Wu Li <wu.li.phys2011@gmail.com>
-!  Copyright (C) 2021 Tianli Feng <Tianli.Feng2011@gmail.com>
-!  Copyright (C) 2021-2023 Xiulin Ruan <ruan@purdue.edu>
-!  Copyright (C) 2023 Ziqi Guo <gziqi@purdue.edu>
-!  Copyright (C) 2023 Guang Lin <guanglin@purdue.edu>
-!
-!  ShengBTE, a solver for the Boltzmann Transport Equation for phonons
-!  Copyright (C) 2012-2017 Wu Li <wu.li.phys2011@gmail.com>
-!  Copyright (C) 2012-2017 Jesús Carrete Montaña <jcarrete@gmail.com>
-!  Copyright (C) 2012-2017 Nebil Ayape Katcho <nebil.ayapekatcho@cea.fr>
-!  Copyright (C) 2012-2017 Natalio Mingo Bisquert <natalio.mingo@cea.fr>
-!
-!  This program is free software: you can redistribute it and/or modify
-!  it under the terms of the GNU General Public License as published by
-!  the Free Software Foundation, either version 3 of the License, or
-!  (at your option) any later version.
-!
-!  This program is distributed in the hope that it will be useful,
-!  but WITHOUT ANY WARRANTY; without even the implied warranty of
-!  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-!  GNU General Public License for more details.
-!
-!  You should have received a copy of the GNU General Public License
-!  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-
 ! Code used to initialize F_n for the zeroth-order iteration of the
 ! BTE and to perform successive iterations.
 module iterations
@@ -114,10 +85,134 @@ contains
              end if
              F_n(i,ALLEquiList(kk,ll),:)=tau_zero(i,ll)*velocity(ALLEquiList(kk,ll),i,:)*&
                   omega(ALLEquiList(kk,ll),i)+tau_zero(i,ll)*DeltaF(i,ALLEquiList(kk,ll),:)
+             F_n(:,ALLEquiList(kk,ll),:)=transpose(matmul(symmetrizers(:,:,ALLEquiList(kk,ll)),transpose(F_n(:,ALLEquiList(kk,ll),:))))
           end do !kk
        end do
     end do
   end subroutine iteration
+
+    ! Four-phonon iteration with Gauss-Seidel approach
+  subroutine iteration_4ph(Nlist,Nequi,ALLEquiList,TypeofSymmetry,N_plus,N_minus,Ntotal_plus,Ntotal_minus,&
+       N_plusplus,N_plusminus,N_minusminus,Ntotal_plusplus,Ntotal_plusminus,Ntotal_minusminus,&
+       Indof2ndPhonon_plus,Indof3rdPhonon_plus,Indof2ndPhonon_minus,Indof3rdPhonon_minus,&
+       Indof2ndPhonon_plusplus,Indof3rdPhonon_plusplus,Indof4thPhonon_plusplus,&
+       Indof2ndPhonon_plusminus,Indof3rdPhonon_plusminus,Indof4thPhonon_plusminus,&
+       Indof2ndPhonon_minusminus,Indof3rdPhonon_minusminus,Indof4thPhonon_minusminus,&
+       omega,velocity,Gamma_plus,Gamma_minus,Gamma_plusplus,Gamma_plusminus,Gamma_minusminus,tau_zero,F_n)
+ 
+    implicit none 
+   
+    integer(kind=4),intent(in) :: Nlist,Nequi(Nlist),ALLEquiList(Nsymm_rot,nptk)
+    integer(kind=4),intent(in) :: TypeofSymmetry(Nsymm_rot,nptk)
+    integer(kind=4),intent(in) :: N_plus(Nlist*Nbands),N_minus(Nlist*Nbands),Ntotal_plus,Ntotal_minus
+    integer(kind=4),intent(in) :: Indof2ndPhonon_plus(Ntotal_plus),Indof3rdPhonon_plus(Ntotal_plus)
+    integer(kind=4),intent(in) :: Indof2ndPhonon_minus(Ntotal_minus),Indof3rdPhonon_minus(Ntotal_minus)
+   
+    integer(kind=8),intent(in) :: N_plusplus(Nlist*Nbands),N_plusminus(Nlist*Nbands),N_minusminus(Nlist*Nbands)
+    integer(kind=8),intent(in) :: Ntotal_plusplus,Ntotal_plusminus,Ntotal_minusminus
+    integer(kind=8),intent(in) :: Indof2ndPhonon_plusplus(Ntotal_plusplus),Indof3rdPhonon_plusplus(Ntotal_plusplus),Indof4thPhonon_plusplus(Ntotal_plusplus)
+    integer(kind=8),intent(in) :: Indof2ndPhonon_plusminus(Ntotal_plusminus),Indof3rdPhonon_plusminus(Ntotal_plusminus),Indof4thPhonon_plusminus(Ntotal_plusminus)
+    integer(kind=8),intent(in) :: Indof2ndPhonon_minusminus(Ntotal_minusminus),Indof3rdPhonon_minusminus(Ntotal_minusminus),Indof4thPhonon_minusminus(Ntotal_minusminus)
+   
+    real(kind=8),intent(in) :: omega(nptk,nbands),velocity(nptk,nbands,3)
+    real(kind=8),intent(in) :: Gamma_plus(Ntotal_plus),Gamma_minus(Ntotal_minus),tau_zero(nbands,nlist)
+    real(kind=8),intent(in) :: Gamma_plusplus(Ntotal_plusplus),Gamma_plusminus(Ntotal_plusminus),Gamma_minusminus(Ntotal_minusminus)
+    real(kind=8),intent(inout) :: F_n(Nbands,nptk,3)
+   
+    integer(kind=4) :: ID_equi(Nsymm_rot,nptk),Naccum_plus,Naccum_minus
+    integer(kind=8) :: Naccum_plusplus,Naccum_plusminus,Naccum_minusminus
+    integer(kind=4) :: i,j,k,l,jj,kk,ll,mm,nn,ss
+    real(kind=8) :: DeltaF(Nbands,nptk,3)
+   
+    call symmetry_map(ID_equi)
+    DeltaF=0.d0
+   
+    do ll=1,Nlist
+      do i=1,Nbands
+         if (((ll-1)*Nbands+i).eq.1) then
+            Naccum_plus=0
+            Naccum_minus=0
+            Naccum_plusplus=0
+            Naccum_plusminus=0
+            Naccum_minusminus=0
+         else
+            Naccum_plus=Naccum_plus+N_plus((ll-1)*Nbands+i-1)
+            Naccum_minus=Naccum_minus+N_minus((ll-1)*Nbands+i-1)
+            Naccum_plusplus=Naccum_plusplus+N_plusplus((ll-1)*Nbands+i-1)
+            Naccum_plusminus=Naccum_plusminus+N_plusminus((ll-1)*Nbands+i-1)
+            Naccum_minusminus=Naccum_minusminus+N_minusminus((ll-1)*Nbands+i-1)
+         end if
+         do kk=1,Nequi(ll)
+            if ((N_plus((ll-1)*Nbands+i).ne.0)) then
+               do jj=1,N_plus((ll-1)*Nbands+i)
+                  j=modulo(Indof2ndPhonon_plus(Naccum_plus+jj)-1,Nbands)+1
+                  mm=int((Indof2ndPhonon_plus(Naccum_plus+jj)-1)/Nbands)+1
+                  k=modulo(Indof3rdPhonon_plus(Naccum_plus+jj)-1,Nbands)+1
+                  nn=int((Indof3rdPhonon_plus(Naccum_plus+jj)-1)/Nbands)+1
+                  DeltaF(i,ALLEquiList(kk,ll),:)=DeltaF(i,ALLEquiList(kk,ll),:)+&
+                       Gamma_plus(Naccum_plus+jj)*(F_n(k,ID_equi(TypeofSymmetry(kk,ll),nn),:)-&
+                       F_n(j,ID_equi(TypeofSymmetry(kk,ll),mm),:))
+               end do !jj
+            end if
+            if ((N_minus((ll-1)*Nbands+i).ne.0)) then
+               do jj=1,N_minus((ll-1)*Nbands+i)
+                  j=modulo(Indof2ndPhonon_minus(Naccum_minus+jj)-1,Nbands)+1
+                  mm=int((Indof2ndPhonon_minus(Naccum_minus+jj)-1)/Nbands)+1
+                  k=modulo(Indof3rdPhonon_minus(Naccum_minus+jj)-1,Nbands)+1
+                  nn=int((Indof3rdPhonon_minus(Naccum_minus+jj)-1)/Nbands)+1
+                  DeltaF(i,ALLEquiList(kk,ll),:)=DeltaF(i,ALLEquiList(kk,ll),:)+&
+                       Gamma_minus(Naccum_minus+jj)*(F_n(k,ID_equi(TypeofSymmetry(kk,ll),nn),:)+&
+                       F_n(j,ID_equi(TypeofSymmetry(kk,ll),mm),:))*5.D-1
+               end do !jj
+            end if
+            if ((N_plusplus((ll-1)*Nbands+i).ne.0)) then
+               do jj=1,N_plusplus((ll-1)*Nbands+i)
+                  j=modulo(Indof2ndPhonon_plusplus(Naccum_plusplus+jj)-1,Nbands)+1
+                  mm=int((Indof2ndPhonon_plusplus(Naccum_plusplus+jj)-1)/Nbands)+1
+                  k=modulo(Indof3rdPhonon_plusplus(Naccum_plusplus+jj)-1,Nbands)+1
+                  nn=int((Indof3rdPhonon_plusplus(Naccum_plusplus+jj)-1)/Nbands)+1
+                  l=modulo(Indof4thPhonon_plusplus(Naccum_plusplus+jj)-1,Nbands)+1
+                  ss=int((Indof4thPhonon_plusplus(Naccum_plusplus+jj)-1)/Nbands)+1
+                  DeltaF(i,ALLEquiList(kk,ll),:)=DeltaF(i,ALLEquiList(kk,ll),:)+&
+                        Gamma_plusplus(Naccum_plusplus+jj)*(F_n(l,ID_equi(TypeofSymmetry(kk,ll),ss),:)-&
+                        F_n(j,ID_equi(TypeofSymmetry(kk,ll),mm),:)-F_n(k,ID_equi(TypeofSymmetry(kk,ll),nn),:))
+               end do
+            end if 
+            if ((N_plusminus((ll-1)*Nbands+i).ne.0)) then
+               do jj=1,N_plusminus((ll-1)*Nbands+i)
+                  j=modulo(Indof2ndPhonon_plusminus(Naccum_plusminus+jj)-1,Nbands)+1
+                  mm=int((Indof2ndPhonon_plusminus(Naccum_plusminus+jj)-1)/Nbands)+1
+                  k=modulo(Indof3rdPhonon_plusminus(Naccum_plusminus+jj)-1,Nbands)+1
+                  nn=int((Indof3rdPhonon_plusminus(Naccum_plusminus+jj)-1)/Nbands)+1
+                  l=modulo(Indof4thPhonon_plusminus(Naccum_plusminus+jj)-1,Nbands)+1
+                  ss=int((Indof4thPhonon_plusminus(Naccum_plusminus+jj)-1)/Nbands)+1
+                  DeltaF(i,ALLEquiList(kk,ll),:)=DeltaF(i,ALLEquiList(kk,ll),:)+&
+                        Gamma_plusminus(Naccum_plusminus+jj)*(F_n(l,ID_equi(TypeofSymmetry(kk,ll),ss),:)-&
+                        F_n(j,ID_equi(TypeofSymmetry(kk,ll),mm),:)+F_n(k,ID_equi(TypeofSymmetry(kk,ll),nn),:))
+               end do
+            end if
+            if ((N_minusminus((ll-1)*Nbands+i).ne.0)) then
+               do jj=1,N_minusminus((ll-1)*Nbands+i)
+                  j=modulo(Indof2ndPhonon_minusminus(Naccum_minusminus+jj)-1,Nbands)+1
+                  mm=int((Indof2ndPhonon_minusminus(Naccum_minusminus+jj)-1)/Nbands)+1
+                  k=modulo(Indof3rdPhonon_minusminus(Naccum_minusminus+jj)-1,Nbands)+1
+                  nn=int((Indof3rdPhonon_minusminus(Naccum_minusminus+jj)-1)/Nbands)+1
+                  l=modulo(Indof4thPhonon_minusminus(Naccum_minusminus+jj)-1,Nbands)+1
+                  ss=int((Indof4thPhonon_minusminus(Naccum_minusminus+jj)-1)/Nbands)+1
+                  DeltaF(i,ALLEquiList(kk,ll),:)=DeltaF(i,ALLEquiList(kk,ll),:)+&
+                        Gamma_minusminus(Naccum_minusminus+jj)*(F_n(l,ID_equi(TypeofSymmetry(kk,ll),ss),:)+&
+                        F_n(j,ID_equi(TypeofSymmetry(kk,ll),mm),:)+F_n(k,ID_equi(TypeofSymmetry(kk,ll),nn),:))
+               end do
+            end if
+            F_n(i,ALLEquiList(kk,ll),:)=tau_zero(i,ll)*velocity(ALLEquiList(kk,ll),i,:)*&
+                  omega(ALLEquiList(kk,ll),i)+tau_zero(i,ll)*DeltaF(i,ALLEquiList(kk,ll),:)
+            F_n(:,ALLEquiList(kk,ll),:)=transpose(matmul(symmetrizers(:,:,ALLEquiList(kk,ll)),transpose(F_n(:,ALLEquiList(kk,ll),:))))
+         end do
+      end do
+    end do 
+  
+  
+  end subroutine iteration_4ph
 
 
   ! Restricted variation of the above subroutine, limited to cases where kappa
