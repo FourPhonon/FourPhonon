@@ -20,8 +20,8 @@ The compilation of `FourPhonon` is the same as the previous `ShengBTE`: after se
 
 1. T. Feng and X. Ruan, [Phys. Rev. B **93**, 045202 (2016).](https://journals.aps.org/prb/abstract/10.1103/PhysRevB.93.045202)
 2. T. Feng, L. Lindsay, and X. Ruan, [Phys. Rev. B **96**, 161201 (2017).](https://journals.aps.org/prb/abstract/10.1103/PhysRevB.96.161201)
-3. Z. Han *et al.*, [Comput. Phys. Commun. **270**, 108179 (2022)](https://doi.org/10.1016/j.cpc.2021.108179). 
-4. Z. Guo *et al.*, [arXiv:2311.12935 (2023)](https://doi.org/10.48550/arXiv.2311.12935).
+3. Z. Han *et al.*, [Comput. Phys. Commun. **270**, 108179 (2022).](https://doi.org/10.1016/j.cpc.2021.108179)
+4. Z. Guo *et al.*, [npj Comput. Mater. 10, 31 (2024).](https://www.nature.com/articles/s41524-024-01215-8)
 
 ## The original authors of `ShengBTE` and references:
 
