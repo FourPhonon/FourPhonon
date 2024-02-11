@@ -137,7 +137,7 @@ Here, we show some practical usage of this flag in combination with other flags.
 
 ### Sampling method for accelerated RTA solution
 
-For estimating scattering rate from a sample of scattering processes, please also cite [Z. Guo *et al.*, [arXiv:2311.12935 (2023)](https://doi.org/10.48550/arXiv.2311.12935)] and use the tags below:
+For estimating scattering rate from a sample of scattering processes, please also cite [Z. Guo *et al.*, [npj Comput. Mater. 10, 31 (2024).](https://www.nature.com/articles/s41524-024-01215-8)] and use the tags below:
 
 - `num_sample_process_3ph` and `num_sample_process_3ph_phase_space` (int, default=`-1`): the number of sample taken from each mode for estimating three-phonon phase space and scattering rate.  `-1` means not taking any sample and performing rigorous calculation. Note that when `convergence=.true.`, i.e., using iterative scheme for three-phonon scattering calculation, `num_sample_process_3ph` must be `-1`, since the sampling method works on relaxation time approximation.
 - `num_sample_process_4ph` and `num_sample_process_4ph_phase_space` (int, default=`-1`): the number of sample taken from each mode for estimating four-phonon phase space and scattering rate.  `-1` means not taking any sample and performing rigorous calculation. Note that when `four_phonon=.false.`, `num_sample_process_4ph` and `num_sample_process_4ph_phase_space` must both be `-1`.
