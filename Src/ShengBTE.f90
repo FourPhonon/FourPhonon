@@ -177,8 +177,8 @@ program ShengBTE
    chunksize = (Nbands*Nlist + numchunk - 1) / numchunk
    if(myid.eq.0) then
       write(*,*) "Info: Number of MPI processes=",numprocs
-      write(*,*), "Info: Number of OpenMP threads=",numthreads
-      write(*,*), "Info: Number of modes on each MPI process=",chunksize
+      write(*,*) "Info: Number of OpenMP threads=",numthreads
+      write(*,*) "Info: Number of modes on each MPI process=",chunksize
    end if
 
 #ifdef CPU_VERSION
