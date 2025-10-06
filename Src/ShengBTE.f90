@@ -925,14 +925,12 @@ program ShengBTE
             write(*,*) "Timing: Start calculating 3ph processes on GPU, RTA solver: ", end_time - start_time, " s"
          end if
 
-         if (myid.eq.0) then
-            call RTA_driver_GPU_using_Ind(energy,velocity,eigenvect,Nlist,List,IJK,&
-               Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
-               N_plus, N_minus,&
-               Indof2ndPhonon_plus, Indof2ndPhonon_minus, Indof3rdPhonon_plus, Indof3rdPhonon_minus,&
-               rate_scatt,rate_scatt_plus,&
-               rate_scatt_minus,Pspace_plus_total,Pspace_minus_total)
-         end if
+         call RTA_driver_GPU_using_Ind(energy,velocity,eigenvect,Nlist,List,IJK,&
+            Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
+            N_plus, N_minus,&
+            Indof2ndPhonon_plus, Indof2ndPhonon_minus, Indof3rdPhonon_plus, Indof3rdPhonon_minus,&
+            rate_scatt,rate_scatt_plus,&
+            rate_scatt_minus,Pspace_plus_total,Pspace_minus_total)
 
          ! deallocate
          deallocate(Indof2ndPhonon_plus)
