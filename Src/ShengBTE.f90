@@ -888,7 +888,7 @@ program ShengBTE
      else  ! convergence=.false.
          ! ----------- sampling method add -----------
          if(myid.eq.0) then
-            if(num_sample_process_3ph.gt.0) write(*,*) "Timing: num_sample_process_3ph = ", num_sample_process_3ph
+            if(num_sample_process_3ph.gt.0) write(*,*) "Info: num_sample_process_3ph = ", num_sample_process_3ph
          end if
          ! ----------- end sampling method add -----------
 #ifdef CPU_VERSION
@@ -949,7 +949,7 @@ program ShengBTE
         if (four_phonon) then
             ! ----------- sampling method add -----------
             if(myid.eq.0) then
-               if(num_sample_process_4ph.gt.0) write(*,*) "Timing: num_sample_process_4ph = ", num_sample_process_4ph
+               if(num_sample_process_4ph.gt.0) write(*,*) "Info: num_sample_process_4ph = ", num_sample_process_4ph
             end if
             ! ----------- end sampling method add -----------
 
