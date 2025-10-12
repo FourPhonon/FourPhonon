@@ -79,6 +79,9 @@ Two mutually exclusive GPU parallelization strategies are available:
 - **RTA calculations only**: The current GPU version only supports Relaxation Time Approximation (RTA) calculations. Iterative BTE solvers (`convergence=.true.` and `four_phonon_iteration=.true.`) are not implemented on GPU
 - **Sampling methods not supported**: The GPU version does not support sampling acceleration methods (`num_sample_process_*ph` parameters must be `-1`)
 - **Memory requirements**: GPU calculations require sufficient GPU memory. Large systems may need high-memory GPUs
+- **Single GPU Support Only**: The GPU version does not support multi-GPU parallelization. However, the CPU part of the calculation can still be accelerated using MPI and OpenMP for parallel processing.
+
+
 
 ### Example GPU compilation
 
