@@ -15,7 +15,7 @@ FourPhonon uses **MPI+OpenMP hybrid parallelism** for efficient parallel executi
 Configure `Src/arch.make` for CPU compilation:
 
 ```makefile
-export CPU_COMPILER = mpif90
+export CPU_COMPILER = mpiifort
 CPU_FFLAGS = -qopenmp -traceback -O2 -fpp -DCPU_VERSION
 ```
 
