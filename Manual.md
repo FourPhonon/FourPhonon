@@ -3,13 +3,94 @@
 
 Besides the routine inputs in `CONTROL` file of `ShengBTE`, `FourPhonon` requires a fourth-order force constants and some new name-lists in `CONTROL` file. Check [ShengBTE website](https://bitbucket.org/sousaw/shengbte/src/master/README.md) for definition of other name-lists.
 
-## Parallel environment
+## CPU Parallel environment
 
-Version 1.1 and 1.0 were written for MPI parallelism. Starting from Version 1.2 that supports iterative solver for four-phonon scattering, we have migrated to **OpenMP** to handle large memory required for this iterative solver. In the future we may support MPI+OpenMP hybrid parallelism to allow more flexibility. Make sure to add `-qopenmp` in compilation or:
+FourPhonon uses **MPI+OpenMP hybrid parallelism** for efficient parallel execution on modern HPC systems:
+
+- **MPI**: Distributes work across nodes and processes
+- **OpenMP**: Provides thread-level parallelism within each MPI process for memory-intensive operations
+
+### Compilation flags
+
+Configure `Src/arch.make` for CPU compilation:
 
 ```makefile
-export FFLAGS=-qopenmp -traceback -debug -O2 -static_intel
+export CPU_COMPILER = mpiifort
+CPU_FFLAGS = -qopenmp -traceback -O2 -fpp -DCPU_VERSION
 ```
+
+Make sure to add `-qopenmp` (Intel) for OpenMP support.
+
+### Example CPU compilation
+
+```bash
+cd Src/
+make cpu
+# or simply
+make
+```
+
+This creates the `ShengBTE_cpu` executable in the root directory.
+
+### Running with MPI+OpenMP
+
+Set the number of MPI processes and OpenMP threads:
+
+```bash
+export OMP_NUM_THREADS=8
+export OMP_STACKSIZE=1G
+mpirun -np 4 ./ShengBTE_cpu
+```
+
+This example uses 4 MPI processes with 8 OpenMP threads each (total 32 cores).
+
+**Important**: `OMP_STACKSIZE=1G` is required on some clusters to allocate sufficient stack memory for OpenMP threads.
+
+**Note**: Earlier versions (1.0-1.1) used MPI-only parallelism. Version 1.2 migrated to OpenMP support for the iterative solver to handle large memory requirements.
+
+## GPU acceleration
+
+FourPhonon supports GPU acceleration using OpenACC directives for NVIDIA GPUs. The GPU version is compiled separately from the CPU version and provides significant speedup for large systems. For more details on GPU implementation, see [arXiv:2510.00518](https://arxiv.org/abs/2510.00518).
+
+### GPU compilation requirements
+
+- **Compiler**: NVIDIA HPC SDK with `nvfortran` compiler
+- **GPU architecture**: NVIDIA GPU with compute capability 6.0 or higher
+- **OpenACC**: Version 2.7 or later support required
+
+### GPU compilation flags
+
+Configure `Src/arch.make` for GPU compilation:
+
+```makefile
+export GPU_COMPILER = nvfortran
+GPU_FFLAGS = -acc -Minfo=accel -Mpreprocess -g -cuda -gpu=ptxinfo,cc80 -mp -O2 -DGPU_VERSION -DGPU_ALL_MODE_PARALLELIZATION
+```
+
+### GPU parallelization modes
+
+Two mutually exclusive GPU parallelization strategies are available:
+
+- `GPU_ALL_MODE_PARALLELIZATION` (default): Parallelizes across all phonon modes simultaneously. Recommended for most systems.
+- `GPU_MODE_BY_MODE_PARALLELIZATION`: Parallelizes mode-by-mode. May be more memory efficient for very large systems.
+
+### Current GPU restriction
+
+- **RTA calculations only**: The current GPU version only supports Relaxation Time Approximation (RTA) calculations. Iterative BTE solvers (`convergence=.true.` and `four_phonon_iteration=.true.`) are not implemented on GPU
+- **Sampling methods not supported**: The GPU version does not support sampling acceleration methods (`num_sample_process_*ph` parameters must be `-1`)
+- **Memory requirements**: GPU calculations require sufficient GPU memory. Large systems may need high-memory GPUs
+- **Single GPU Support Only**: The GPU version does not support multi-GPU parallelization. However, the CPU part of the calculation can still be accelerated using MPI and OpenMP for parallel processing.
+
+
+
+### Example GPU compilation
+
+```bash
+cd Src/
+make gpu
+```
+
+This creates the `ShengBTE_gpu` executable in the root directory.
 
 ## 4th-IFCs files: FORCE_CONSTANTS_4TH
 
@@ -219,6 +300,4 @@ Under temperature-dependent directories: (the unit of scattering rates is $\rm p
 - `BTE.WP4_plusplus*`, `BTE.WP4_plusminus*`, `BTE.WP4_minusminus*`: similar to BTE.WP4 but only includes contributions from ++/+-/- - processes
 - `BTE.w_3ph`: three-phonon scattering rates for each irreducible q point and phonon band, this file replaces the original output `BTE.w_anharmonic`. Absorption and emission processes are written out into `BTE.w_3ph_plus` and `BTE.w_3ph_minus`
 - `BTE.w_4ph`: four-phonon scattering rates for each irreducible q point and phonon band. Similarly, we provide the contributions from different channels: `BTE.w_4ph_plusplus`, `BTE.w_4ph_plusminus` and `BTE.w_4ph_minusminus`
-- `BTE.w_4ph_normal`: four-phonon scattering rates of normal processes, for each irreducible q point and phonon band. This file has 5 columns and each one represents: angular frequency in rad/ps, recombination channel, redistribution channel, splitting channel, overall scattering rates from normal processes
-- `BTE.w_4ph_Umklapp`: four-phonon scattering rates of Umklapp processes, for each irreducible q point and phonon band. The format is the same as `BTE.w_4ph_normal`
 - `BTE.kappa*`: thermal conductivity results are written out as usual

@@ -59,12 +59,9 @@ program ShengBTE
   real(kind=8),allocatable :: grun(:,:)
 
   real(kind=8),allocatable :: rate_scatt(:,:),rate_scatt_plus(:,:),rate_scatt_minus(:,:)
-  real(kind=8),allocatable :: rate_scatt_plus_N(:,:),rate_scatt_minus_N(:,:),rate_scatt_plus_U(:,:),rate_scatt_minus_U(:,:)
    
   ! Variables related to four-phonon scatterings
   real(kind=8),allocatable :: rate_scatt_4ph(:,:),rate_scatt_plusplus(:,:),rate_scatt_plusminus(:,:),rate_scatt_minusminus(:,:)
-  real(kind=8),allocatable :: rate_scatt_plusplus_N(:,:),rate_scatt_plusminus_N(:,:),rate_scatt_minusminus_N(:,:)
-  real(kind=8),allocatable :: rate_scatt_plusplus_U(:,:),rate_scatt_plusminus_U(:,:),rate_scatt_minusminus_U(:,:)
   integer(kind=4) :: Ntri_4fc
   real(kind=8),allocatable :: Psi(:,:,:,:,:),R_s(:,:),R_t(:,:),R_u(:,:)
   integer(kind=4),allocatable :: Index_r(:),Index_s(:),Index_t(:),Index_u(:)
@@ -98,7 +95,7 @@ program ShengBTE
   integer(kind=4),allocatable :: Indof2ndPhonon_plus(:),Indof3rdPhonon_plus(:)
   integer(kind=4),allocatable :: Indof2ndPhonon_minus(:),Indof3rdPhonon_minus(:)
   real(kind=8) :: radnw,kappa_or_old
-  real(kind=8),allocatable :: Gamma_plus(:),Gamma_minus(:),Gamma_plus_N(:),Gamma_minus_N(:),Gamma_plus_U(:),Gamma_minus_U(:)
+  real(kind=8),allocatable :: Gamma_plus(:),Gamma_minus(:)
   real(kind=8),allocatable :: Pspace_plus_total(:,:)
   real(kind=8),allocatable :: Pspace_minus_total(:,:)
   real(kind=8),allocatable :: ffunc(:,:),radnw_range(:),v_or(:,:),F_or(:,:)
@@ -112,14 +109,29 @@ program ShengBTE
 
   real(kind=8) :: dnrm2
 
+   ! MPI time
+   double precision :: start_time, end_time
+
+
   call MPI_INIT_thread(MPI_THREAD_FUNNELED,PROVIDED,ierr)
   call MPI_COMM_RANK(MPI_COMM_WORLD,myid,ierr)
   call MPI_COMM_SIZE(MPI_COMM_WORLD,numprocs,ierr)
+
+   ! Set the number of OpenMP threads to the maximum allowed.
+   numthreads=omp_get_max_threads()
+   call omp_set_num_threads(numthreads)
+
+
+
   if (provided < MPI_THREAD_FUNNELED) then
       write(*,*) "Insufficient threading support"
       call MPI_FINALIZE(ierr)
       stop
   endif
+
+   ! Start timing 
+    start_time = MPI_Wtime()
+
 
   ! Read CONTROL and initialize variables such as the
   ! direct/reciprocal lattice vectors, the symmetry operations, the
@@ -160,6 +172,37 @@ program ShengBTE
         eqclasses(ALLEquiList(kk,ll))=ll !List(ll)
      end do
   end do
+
+   numchunk = numprocs  ! number of chunks, set to number of processors 
+   chunksize = (Nbands*Nlist + numchunk - 1) / numchunk
+   if(myid.eq.0) then
+      write(*,*) "Info: Number of MPI processes=",numprocs
+      write(*,*) "Info: Number of OpenMP threads=",numthreads
+      write(*,*) "Info: Number of modes on each MPI process=",chunksize
+   end if
+
+#ifdef CPU_VERSION
+   if(myid.eq.0) then
+      write(*,*) "Info: CPU version"
+   end if
+#endif
+#ifdef GPU_VERSION
+   if(myid.eq.0) then
+      write(*,*) "Info: GPU version"
+#ifdef GPU_ALL_MODE_PARALLELIZATION
+   print *, "Info: all-mode parallelization on GPU"
+#endif
+#ifdef GPU_MODE_BY_MODE_PARALLELIZATION
+   print *, "Info: mode-by-mode parallelization on GPU"
+#endif
+   end if
+#endif
+
+   if(myid.eq.0) then
+      write(*,*) "Info: nptk=",nptk
+      write(*,*) "Info: Nbands=",Nbands   
+      write(*,*) "Info: scalebroad=",scalebroad
+   end if
 
 
   do ii=1,Ngrid(1)
@@ -333,24 +376,12 @@ program ShengBTE
 
   allocate(rate_scatt(Nbands,Nlist))
   allocate(rate_scatt_plus(Nbands,Nlist))
-  allocate(rate_scatt_plus_N(Nbands,Nlist))
-  allocate(rate_scatt_plus_U(Nbands,Nlist))
-
   allocate(rate_scatt_minus(Nbands,Nlist))
-  allocate(rate_scatt_minus_N(Nbands,Nlist))
-  allocate(rate_scatt_minus_U(Nbands,Nlist))
 
   allocate(rate_scatt_4ph(Nbands,Nlist))
   allocate(rate_scatt_plusplus(Nbands,Nlist))
-  allocate(rate_scatt_plusplus_N(Nbands,Nlist))
-  allocate(rate_scatt_plusplus_U(Nbands,Nlist))
   allocate(rate_scatt_plusminus(Nbands,Nlist))
-  allocate(rate_scatt_plusminus_N(Nbands,Nlist))
-  allocate(rate_scatt_plusminus_U(Nbands,Nlist))
   allocate(rate_scatt_minusminus(Nbands,Nlist))
-  allocate(rate_scatt_minusminus_N(Nbands,Nlist))
-  allocate(rate_scatt_minusminus_U(Nbands,Nlist))
-
 
 
   allocate(tau_zero(Nbands,Nlist))
@@ -359,27 +390,23 @@ program ShengBTE
 
   rate_scatt=0.d0
   rate_scatt_plus=0.d0
-  rate_scatt_plus_N=0.d0
-  rate_scatt_plus_U=0.d0
   rate_scatt_minus=0.d0
-  rate_scatt_minus_N=0.d0
-  rate_scatt_minus_U=0.d0
   rate_scatt_4ph=0.d00
   rate_scatt_plusplus=0.d00
-  rate_scatt_plusplus_N=0.d00
-  rate_scatt_plusplus_U=0.d00
   rate_scatt_plusminus=0.d00
-  rate_scatt_plusminus_N=0.d00
-  rate_scatt_plusminus_U=0.d00
   rate_scatt_minusminus=0.d00
-  rate_scatt_minusminus_N=0.d00
-  rate_scatt_minusminus_U=0.d00
-
 
   allocate(radnw_range(nwires))
   do ii=1,nwires
      radnw_range(ii)=rmin+(ii-1.0)*dr
   end do
+
+
+   if (myid.eq.0) then
+      end_time = MPI_Wtime()
+      write(*,*) "Timing: Start calculating 3ph allowed processes: ", end_time - start_time, " s"
+   end if
+
 
   ! N_plus: number of allowed absorption processes
   ! N_minus: number of allowed emission processes.
@@ -405,33 +432,71 @@ program ShengBTE
       if(num_sample_process_3ph_phase_space.gt.0) write(*,*) "Info: num_sample_process_3ph_phase_space = ", num_sample_process_3ph_phase_space
    end if
    ! ----------- sampling method add -----------
-
+#ifdef CPU_VERSION
   call NP_driver(energy,velocity,Nlist,List,IJK,&
        N_plus,Pspace_plus_total,N_minus,Pspace_minus_total)
+#endif
+#ifdef GPU_VERSION
+   ! Intentionally use a CPU version here, as GPU calculated numbers of processes can be different,
+   ! which may cause the matrix overflow in Ind_only functions
+  call NP_driver(energy,velocity,Nlist,List,IJK,&
+       N_plus,Pspace_plus_total,N_minus,Pspace_minus_total)
+#endif
 
-  Ntotal_plus=sum(N_plus)
-  Ntotal_minus=sum(N_minus)
+   Ntotal_plus=sum(N_plus)
+   Ntotal_minus=sum(N_minus)
+   if(myid.eq.0)write(*,*) "Info: Ntotal_plus =",Ntotal_plus
+   if(myid.eq.0)write(*,*) "Info: Ntotal_minus =",Ntotal_minus
+   if (myid.eq.0) then
+      end_time = MPI_Wtime()
+      write(*,*) "Timing: End calculating 3ph allowed processes: ", end_time - start_time, " s"
+   end if
   
-  if(myid.eq.0)write(*,*) "Info: Ntotal_plus =",Ntotal_plus
-  if(myid.eq.0)write(*,*) "Info: Ntotal_minus =",Ntotal_minus
+
+
+
   if (four_phonon) then
-    if(myid.eq.0.and.four_phonon)write(*,*) "Info: Start calculating 4ph allowed processes"
-   ! ----------- sampling method add -----------
+      if (myid.eq.0) then
+         end_time = MPI_Wtime()
+         write(*,*) "Timing: Start calculating 4ph allowed processes: ", end_time - start_time, " s"
+      end if
+
+      ! ----------- sampling method add -----------
       if(myid.eq.0) then
          if(num_sample_process_4ph_phase_space.gt.0) write(*,*) "Info: num_sample_process_4ph_phase_space = ", num_sample_process_4ph_phase_space
       end if
-   ! ----------- end sampling method add -----------
+      ! ----------- end sampling method add -----------
    
    
+
+
+#ifdef CPU_VERSION
        call NP_driver_4ph(energy,velocity,Nlist,List,IJK,&
          N_plusplus,Pspace_plusplus_total,N_plusminus,&
          Pspace_plusminus_total,N_minusminus,Pspace_minusminus_total)
-    Ntotal_plusplus=sum(N_plusplus)
-    Ntotal_plusminus=sum(N_plusminus)
-    Ntotal_minusminus=sum(N_minusminus)
+#endif
+#ifdef GPU_VERSION
+      ! Intentionally use a CPU version here, as GPU calculated numbers of processes can be different,
+      ! which may cause the matrix overflow in Ind_only functions
+       call NP_driver_4ph(energy,velocity,Nlist,List,IJK,&
+         N_plusplus,Pspace_plusplus_total,N_plusminus,&
+         Pspace_plusminus_total,N_minusminus,Pspace_minusminus_total)
+
+      !  call NP_driver_4ph_GPU(energy,velocity,Nlist,List,IJK,&
+      !    N_plusplus,Pspace_plusplus_total,N_plusminus,&
+      !    Pspace_plusminus_total,N_minusminus,Pspace_minusminus_total)
+#endif
+
+      Ntotal_plusplus=sum(N_plusplus)
+      Ntotal_plusminus=sum(N_plusminus)
+      Ntotal_minusminus=sum(N_minusminus)
+      if(myid.eq.0.and.four_phonon) write(*,*) "Info: Ntotal_plusplus,Ntotal_plusminus,Ntotal_minusminus="
+      if(myid.eq.0.and.four_phonon) write(*,"(1X,I0,1X,I0,1X,I0)") Ntotal_plusplus,Ntotal_plusminus,Ntotal_minusminus
+      if (myid.eq.0) then
+         end_time = MPI_Wtime()
+         write(*,*) "Timing: End calculating 4ph allowed processes: ", end_time - start_time, " s"
+      end if
   end if
-  if(myid.eq.0.and.four_phonon) write(*,*) "Info: Ntotal_plusplus,Ntotal_plusminus,Ntotal_minusminus="
-  if(myid.eq.0.and.four_phonon) write(*,"(1X,I0,1X,I0,1X,I0)") Ntotal_plusplus,Ntotal_plusminus,Ntotal_minusminus
   if(myid.eq.0.and.four_phonon) then
     open(1,file="BTE.Numprocess_4ph",status="replace")
     do i=1,Nbands
@@ -535,18 +600,24 @@ program ShengBTE
             path="T"//trim(adjustl(aux2))//"K"
             call change_directory(trim(adjustl(path))//C_NULL_CHAR)
          end if
+#ifdef CPU_VERSION
          call RTA_driver(energy,velocity,eigenvect,Nlist,List,IJK,&
                Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
-               rate_scatt,rate_scatt_plus,rate_scatt_minus,Pspace_plus_total,Pspace_minus_total,&
-               rate_scatt_plus_N,rate_scatt_minus_N,rate_scatt_plus_U,rate_scatt_minus_U)
+               rate_scatt,rate_scatt_plus,rate_scatt_minus,Pspace_plus_total,Pspace_minus_total)
+#endif
+#ifdef GPU_VERSION   
+         ! Intentionally use a CPU version here for onlyharmonic calculation
+         call RTA_driver(energy,velocity,eigenvect,Nlist,List,IJK,&
+               Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
+               rate_scatt,rate_scatt_plus,rate_scatt_minus,Pspace_plus_total,Pspace_minus_total)
+#endif
+
          if (four_phonon) then ! four-phonon function
             call RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
                   Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
                   rate_scatt_4ph,&
                   rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
-                  Pspace_plusplus_total,Pspace_plusminus_total,Pspace_minusminus_total,&
-                  rate_scatt_plusplus_N,rate_scatt_plusminus_N,rate_scatt_minusminus_N,&
-                  rate_scatt_plusplus_U,rate_scatt_plusminus_U,rate_scatt_minusminus_U)
+                  Pspace_plusplus_total,Pspace_plusminus_total,Pspace_minusminus_total)
          end if
          if(myid.eq.0) then
             open(1,file="BTE.WP3_plus",status="replace")
@@ -668,6 +739,15 @@ program ShengBTE
   ! requested (i.e., when the relaxation-time approximation is
   ! enough) we use optimized routines with a much smaller memory footprint.
   ! weighted phase space volume per mode .
+
+
+  ! Calculate the total execution time
+   if (myid.eq.0) then
+      end_time = MPI_Wtime()
+      write(*,*) "Timing: Start calculating scattering rate time: ", end_time - start_time, " s"
+   end if
+
+
   allocate(Pspace_plus_total(Nbands,Nlist))
   allocate(Pspace_minus_total(Nbands,Nlist))
   if (four_phonon) then
@@ -715,19 +795,35 @@ program ShengBTE
         call change_directory(trim(adjustl(path))//C_NULL_CHAR)
      end if
      if(convergence) then
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: Start calculating 3ph processes on CPU, iterative solver: ", end_time - start_time, " s"
+         end if
         call Ind_driver(energy,velocity,eigenvect,Nlist,List,IJK,N_plus,N_minus,&
              Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
              Indof2ndPhonon_plus,Indof3rdPhonon_plus,Gamma_plus,&
              Indof2ndPhonon_minus,Indof3rdPhonon_minus,Gamma_minus,rate_scatt,&
              rate_scatt_plus,rate_scatt_minus,Pspace_plus_total,Pspace_minus_total)
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: End calculating 3ph processes on CPU, iterative solver: ", end_time - start_time, " s"
+         end if
         if (four_phonon.and.four_phonon_iteration) then
-          call Ind_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,N_plusplus,N_plusminus,N_minusminus,&
-                Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
-                Indof2ndPhonon_plusplus,Indof3rdPhonon_plusplus,Indof4thPhonon_plusplus,Gamma_plusplus,&
-                Indof2ndPhonon_plusminus,Indof3rdPhonon_plusminus,Indof4thPhonon_plusminus,Gamma_plusminus,&
-                Indof2ndPhonon_minusminus,Indof3rdPhonon_minusminus,Indof4thPhonon_minusminus,Gamma_minusminus,&
-                rate_scatt_4ph,rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
-                Pspace_plusplus_total,Pspace_plusminus_total,Pspace_minusminus_total)
+            if (myid.eq.0) then
+               end_time = MPI_Wtime()
+               write(*,*) "Timing: Start calculating 4ph processes on CPU, iterative solver: ", end_time - start_time, " s"
+            end if
+            call Ind_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,N_plusplus,N_plusminus,N_minusminus,&
+                  Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
+                  Indof2ndPhonon_plusplus,Indof3rdPhonon_plusplus,Indof4thPhonon_plusplus,Gamma_plusplus,&
+                  Indof2ndPhonon_plusminus,Indof3rdPhonon_plusminus,Indof4thPhonon_plusminus,Gamma_plusminus,&
+                  Indof2ndPhonon_minusminus,Indof3rdPhonon_minusminus,Indof4thPhonon_minusminus,Gamma_minusminus,&
+                  rate_scatt_4ph,rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
+                  Pspace_plusplus_total,Pspace_plusminus_total,Pspace_minusminus_total)
+            if (myid.eq.0) then
+               end_time = MPI_Wtime()
+               write(*,*) "Timing: End calculating 4ph processes on CPU, iterative solver: ", end_time - start_time, " s"
+            end if
         end if
         if (four_phonon.and.four_phonon_iteration.eq. .false.) then
           ! ----------- sampling method add -----------
@@ -735,48 +831,202 @@ program ShengBTE
              if(num_sample_process_4ph.gt.0) write(*,*) "Info: num_sample_process_4ph = ", num_sample_process_4ph
           end if
           ! ----------- end sampling method add -----------
-          call RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
-                Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
-                rate_scatt_4ph,&
-                rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
-                Pspace_plusplus_total,Pspace_plusminus_total,Pspace_minusminus_total,&
-                rate_scatt_plusplus_N,rate_scatt_plusminus_N,rate_scatt_minusminus_N,&
-                rate_scatt_plusplus_U,rate_scatt_plusminus_U,rate_scatt_minusminus_U)
+#ifdef CPU_VERSION
+
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: Start calculating 4ph processes on CPU, RTA solver: ", end_time - start_time, " s"
+         end if
+         call RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
+               Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
+               rate_scatt_4ph,&
+               rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
+               Pspace_plusplus_total,Pspace_plusminus_total,Pspace_minusminus_total)
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: End calculating 4ph processes on CPU, RTA solver: ", end_time - start_time, " s"
+         end if
+#endif
+#ifdef GPU_VERSION
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: Start enumerating 3ph processes index on CPU for GPU RTA solver: ", end_time - start_time, " s"
+         end if
+
+         allocate(Indof2ndPhonon_plus(Ntotal_plus))
+         allocate(Indof3rdPhonon_plus(Ntotal_plus))
+         allocate(Indof2ndPhonon_minus(Ntotal_minus))
+         allocate(Indof3rdPhonon_minus(Ntotal_minus))
+         call Ind_only_driver(energy,velocity,Nlist,List,IJK,&
+               N_plus,N_minus,&
+               Indof2ndPhonon_plus, Indof3rdPhonon_plus,&
+               Indof2ndPhonon_minus, Indof3rdPhonon_minus)
+
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: End enumerating 3ph processes index on CPU for GPU RTA solver: ", end_time - start_time, " s"
+         end if
+
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: Start calculating 3ph processes on GPU, RTA solver: ", end_time - start_time, " s"
+         end if
+
+         call RTA_driver_GPU_using_Ind(energy,velocity,eigenvect,Nlist,List,IJK,&
+            Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
+            N_plus, N_minus,&
+            Indof2ndPhonon_plus, Indof2ndPhonon_minus, Indof3rdPhonon_plus, Indof3rdPhonon_minus,&
+            rate_scatt,rate_scatt_plus,&
+            rate_scatt_minus,Pspace_plus_total,Pspace_minus_total)
+
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: End calculating 3ph processes on GPU, RTA solver: ", end_time - start_time, " s"
+         end if
+#endif
         end if
-     else
-     
+     else  ! convergence=.false.
          ! ----------- sampling method add -----------
          if(myid.eq.0) then
             if(num_sample_process_3ph.gt.0) write(*,*) "Info: num_sample_process_3ph = ", num_sample_process_3ph
          end if
          ! ----------- end sampling method add -----------
+#ifdef CPU_VERSION
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: Start calculating 3ph processes on CPU, RTA solver: ", end_time - start_time, " s"
+         end if
+         call RTA_driver(energy,velocity,eigenvect,Nlist,List,IJK,&
+               Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
+               rate_scatt,rate_scatt_plus,&
+               rate_scatt_minus,Pspace_plus_total,Pspace_minus_total)
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: End calculating 3ph processes on CPU, RTA solver: ", end_time - start_time, " s"
+         end if
+#endif
+#ifdef GPU_VERSION
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: Start enumerating 3ph processes index on CPU for GPU RTA solver: ", end_time - start_time, " s"
+         end if
 
-        call RTA_driver(energy,velocity,eigenvect,Nlist,List,IJK,&
-             Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
-             rate_scatt,rate_scatt_plus,&
-             rate_scatt_minus,Pspace_plus_total,Pspace_minus_total,&
-             rate_scatt_plus_N,rate_scatt_minus_N,rate_scatt_plus_U,rate_scatt_minus_U)
+         allocate(Indof2ndPhonon_plus(Ntotal_plus))
+         allocate(Indof3rdPhonon_plus(Ntotal_plus))
+         allocate(Indof2ndPhonon_minus(Ntotal_minus))
+         allocate(Indof3rdPhonon_minus(Ntotal_minus))
+         call Ind_only_driver(energy,velocity,Nlist,List,IJK,&
+               N_plus,N_minus,&
+               Indof2ndPhonon_plus, Indof3rdPhonon_plus,&
+               Indof2ndPhonon_minus, Indof3rdPhonon_minus)
+
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: Start calculating 3ph processes on GPU, RTA solver: ", end_time - start_time, " s"
+         end if
+
+         call RTA_driver_GPU_using_Ind(energy,velocity,eigenvect,Nlist,List,IJK,&
+            Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
+            N_plus, N_minus,&
+            Indof2ndPhonon_plus, Indof2ndPhonon_minus, Indof3rdPhonon_plus, Indof3rdPhonon_minus,&
+            rate_scatt,rate_scatt_plus,&
+            rate_scatt_minus,Pspace_plus_total,Pspace_minus_total)
+
+         ! deallocate
+         deallocate(Indof2ndPhonon_plus)
+         deallocate(Indof3rdPhonon_plus)
+         deallocate(Indof2ndPhonon_minus)
+         deallocate(Indof3rdPhonon_minus)
+
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: End calculating 3ph processes on GPU, RTA solver: ", end_time - start_time, " s"
+         end if
+#endif
+
         if (four_phonon) then
-        
             ! ----------- sampling method add -----------
             if(myid.eq.0) then
                if(num_sample_process_4ph.gt.0) write(*,*) "Info: num_sample_process_4ph = ", num_sample_process_4ph
             end if
             ! ----------- end sampling method add -----------
 
-          call RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
-              Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
-              rate_scatt_4ph,&
-              rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
-              Pspace_plusplus_total,Pspace_plusminus_total,Pspace_minusminus_total,&
-              rate_scatt_plusplus_N,rate_scatt_plusminus_N,rate_scatt_minusminus_N,&
-              rate_scatt_plusplus_U,rate_scatt_plusminus_U,rate_scatt_minusminus_U)
+#ifdef CPU_VERSION
+
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: Start calculating 4ph processes on CPU, RTA solver: ", end_time - start_time, " s"
+         end if
+         call RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
+            Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
+            rate_scatt_4ph,&
+            rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
+            Pspace_plusplus_total,Pspace_plusminus_total,Pspace_minusminus_total)
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: End calculating 4ph processes on CPU, RTA solver: ", end_time - start_time, " s"
+         end if
+#endif
+#ifdef GPU_VERSION
+         if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: Start enumerating 4ph processes index on CPU for GPU RTA solver: ", end_time - start_time, " s"
+         end if
+
+
+         allocate(Indof2ndPhonon_plusplus(Ntotal_plusplus))
+         allocate(Indof3rdPhonon_plusplus(Ntotal_plusplus))
+         allocate(Indof4thPhonon_plusplus(Ntotal_plusplus))
+         allocate(Indof2ndPhonon_plusminus(Ntotal_plusminus))
+         allocate(Indof3rdPhonon_plusminus(Ntotal_plusminus))
+         allocate(Indof4thPhonon_plusminus(Ntotal_plusminus))
+         allocate(Indof2ndPhonon_minusminus(Ntotal_minusminus))
+         allocate(Indof3rdPhonon_minusminus(Ntotal_minusminus))
+         allocate(Indof4thPhonon_minusminus(Ntotal_minusminus))
+
+
+         call Ind_only_driver_4ph(energy,velocity,Nlist,List,IJK,&
+               N_plusplus,N_plusminus,N_minusminus,&
+               Indof2ndPhonon_plusplus,Indof3rdPhonon_plusplus,Indof4thPhonon_plusplus,&
+               Indof2ndPhonon_plusminus,Indof3rdPhonon_plusminus,Indof4thPhonon_plusminus,&
+               Indof2ndPhonon_minusminus,Indof3rdPhonon_minusminus,Indof4thPhonon_minusminus)
+
+
+         if(myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: Start calculating 4ph processes on GPU, RTA solver: ", end_time - start_time, " s"
+         end if
+
+         call RTA_driver_4ph_GPU_using_Ind(energy,velocity,eigenvect,Nlist,List,IJK,&
+            Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
+            N_plusplus,N_plusminus,N_minusminus,&
+            Indof2ndPhonon_plusplus,Indof3rdPhonon_plusplus,Indof4thPhonon_plusplus,&
+            Indof2ndPhonon_plusminus,Indof3rdPhonon_plusminus,Indof4thPhonon_plusminus,&
+            Indof2ndPhonon_minusminus,Indof3rdPhonon_minusminus,Indof4thPhonon_minusminus,&
+            rate_scatt_4ph,&
+            rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
+            Pspace_plusplus_total,Pspace_plusminus_total,Pspace_minusminus_total)
+
+         ! deallocate 
+         deallocate(Indof2ndPhonon_plusplus)
+         deallocate(Indof3rdPhonon_plusplus)
+         deallocate(Indof4thPhonon_plusplus)
+         deallocate(Indof2ndPhonon_plusminus)
+         deallocate(Indof3rdPhonon_plusminus)
+         deallocate(Indof4thPhonon_plusminus)
+         deallocate(Indof2ndPhonon_minusminus)
+         deallocate(Indof3rdPhonon_minusminus)
+         deallocate(Indof4thPhonon_minusminus)
+
+        if (myid.eq.0) then
+            end_time = MPI_Wtime()
+            write(*,*) "Timing: End calculating 4ph processes on GPU, RTA solver: ", end_time - start_time, " s"
+         end if
+#endif
         end if
      end if
 
 
-
-     
      if(convergence) then
         if(myid.eq.0) then
             open(1,file="BTE.WP3_plus",status="replace")
@@ -868,23 +1118,6 @@ program ShengBTE
               close(2)
               close(3)
               close(4)
-              if (four_phonon_iteration.eq. .false.) then
-                write(*,*) "Info: Output four-phonon N/U scattering rates"
-                open(5,file="BTE.w_4ph_normal",status="replace")
-                open(6,file="BTE.w_4ph_Umklapp",status="replace")
-                do i=1,Nbands
-                  do ll=1,Nlist
-                      write(5,"(5E20.10)") energy(list(ll),i),rate_scatt_plusplus_N(i,ll),rate_scatt_plusminus_N(i,ll),&
-                                            rate_scatt_minusminus_N(i,ll),rate_scatt_plusplus_N(i,ll)+&
-                                            rate_scatt_plusminus_N(i,ll)+rate_scatt_minusminus_N(i,ll)
-                      write(6,"(5E20.10)") energy(list(ll),i),rate_scatt_plusplus_U(i,ll),rate_scatt_plusminus_U(i,ll),&
-                                            rate_scatt_minusminus_U(i,ll),rate_scatt_plusplus_U(i,ll)+&
-                                            rate_scatt_plusminus_U(i,ll)+rate_scatt_minusminus_U(i,ll)
-                  end do
-                end do
-                close(5)
-                close(6)
-              end if
             end if
         end if
      else 
@@ -949,22 +1182,16 @@ program ShengBTE
             open(1,file="BTE.w_3ph",status="replace")
             open(2,file="BTE.w_3ph_plus",status="replace")
             open(3,file="BTE.w_3ph_minus",status="replace")
-            open(4,file="BTE.w_3ph_normal",status="replace")
-            open(5,file="BTE.w_3ph_Umklapp",status="replace")
             do i=1,Nbands
               do ll=1,Nlist
                   write(1,"(6E20.10)") energy(list(ll),i),rate_scatt(i,ll)
                   write(2,"(6E20.10)") energy(list(ll),i),rate_scatt_plus(i,ll)
                   write(3,"(6E20.10)") energy(list(ll),i),rate_scatt_minus(i,ll)
-                  write(4,"(4E20.10)") energy(list(ll),i),rate_scatt_plus_N(i,ll),rate_scatt_minus_N(i,ll),rate_scatt_plus_N(i,ll)+rate_scatt_minus_N(i,ll)
-                  write(5,"(4E20.10)") energy(list(ll),i),rate_scatt_plus_U(i,ll),rate_scatt_minus_U(i,ll),rate_scatt_plus_U(i,ll)+rate_scatt_minus_U(i,ll)
               end do
             end do
             close(1)
             close(2)
             close(3)
-            close(4)
-            close(5)
             if (four_phonon) then
               write(*,*) "Info: Applying RTA scheme on both 3ph and 4ph"
               write(*,*) "Info: Output four-phonon N/U scattering rates"
@@ -972,28 +1199,18 @@ program ShengBTE
               open(2,file="BTE.w_4ph_plusplus",status="replace")
               open(3,file="BTE.w_4ph_plusminus",status="replace")
               open(4,file="BTE.w_4ph_minusminus",status="replace")
-              open(5,file="BTE.w_4ph_normal",status="replace")
-              open(6,file="BTE.w_4ph_Umklapp",status="replace")
               do i=1,Nbands
                 do ll=1,Nlist
                     write(1,"(6E20.10)") energy(list(ll),i),rate_scatt_4ph(i,ll)
                     write(2,"(6E20.10)") energy(list(ll),i),rate_scatt_plusplus(i,ll)
                     write(3,"(6E20.10)") energy(list(ll),i),rate_scatt_plusminus(i,ll)
                     write(4,"(6E20.10)") energy(list(ll),i),rate_scatt_minusminus(i,ll)
-                    write(5,"(5E20.10)") energy(list(ll),i),rate_scatt_plusplus_N(i,ll),rate_scatt_plusminus_N(i,ll),&
-                                          rate_scatt_minusminus_N(i,ll),rate_scatt_plusplus_N(i,ll)+&
-                                          rate_scatt_plusminus_N(i,ll)+rate_scatt_minusminus_N(i,ll)
-                    write(6,"(5E20.10)") energy(list(ll),i),rate_scatt_plusplus_U(i,ll),rate_scatt_plusminus_U(i,ll),&
-                                          rate_scatt_minusminus_U(i,ll),rate_scatt_plusplus_U(i,ll)+&
-                                          rate_scatt_plusminus_U(i,ll)+rate_scatt_minusminus_U(i,ll)
                 end do
               end do
               close(1)
               close(2)
               close(3)
               close(4)
-              close(5)
-              close(6)
             end if
         end if
      end if
@@ -1020,6 +1237,13 @@ program ShengBTE
            end if
         end do
      end do
+
+
+   ! Calculate the total execution time
+   if (myid.eq.0) then
+      end_time = MPI_Wtime()
+      write(*,*) "Timing: Start iterative solutions time: ", end_time - start_time, " s"
+   end if
 
 
      ! Set up everything to start the iterative process.
@@ -1246,6 +1470,11 @@ program ShengBTE
      
   end do ! Tcounter
 
+   ! Calculate the total execution time
+   if (myid.eq.0) then
+      end_time = MPI_Wtime()
+      write(*,*) "Timing: Finish calculation time: ", end_time - start_time, " s"
+   end if
 
   if(myid.eq.0)write(*,*) "Info: normal exit"
 

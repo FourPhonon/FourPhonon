@@ -25,10 +25,10 @@ module config
            T_min,T_max,T_step,omega_max,Length,Ewald, &
            num_sample_process_3ph,num_sample_process_3ph_phase_space, num_sample_process_4ph,num_sample_process_4ph_phase_space
 
-  logical :: nonanalytic,convergence,isotopes,autoisotopes,nanowires,onlyharmonic,espresso,tdep,normal,umklapp,&
+  logical :: nonanalytic,convergence,isotopes,autoisotopes,nanowires,onlyharmonic,espresso,tdep,&
              four_phonon,four_phonon_iteration,nanolength
   namelist /flags/ nonanalytic,convergence,isotopes,autoisotopes,&
-       nanowires,onlyharmonic,espresso,tdep,normal,umklapp,four_phonon,four_phonon_iteration,nanolength
+       nanowires,onlyharmonic,espresso,tdep,four_phonon,four_phonon_iteration,nanolength
 
   integer(kind=4) :: nbands,nptk,nwires
   real(kind=8) :: cgrid,V,rV,rlattvec(3,3),slattvec(3,3)
@@ -43,8 +43,13 @@ module config
   real(kind=8),allocatable :: symmetrizers(:,:,:)
   character(len=10) :: international
 
-  ! MPI variables, assigned in ShengBTE.f90.
-  integer(kind=4) :: myid,numprocs
+  ! MPI/OpenMP variables, assigned in ShengBTE.f90.
+  integer(kind=4) :: myid,numprocs, numthreads, numchunk, chunksize
+
+  
+   ! Variables used to store the configuration on the device
+  !$acc declare create(T, scalebroad, Ngrid, nptk, Nbands, rlattvec, ngrid,masses,types, omega_max, num_sample_process_3ph_phase_space,onlyharmonic)
+
 
 contains
 
@@ -214,6 +219,15 @@ contains
       call MPI_FINALIZE(ierr)
     end if
    ! ----------- end sampling method add -----------
+
+#ifdef GPU_VERSION
+      ! if sampling method is used, stop the code
+      if(num_sample_process_3ph.gt.0 .or. num_sample_process_3ph_phase_space.gt.0 .or. num_sample_process_4ph.gt.0 .or. num_sample_process_4ph_phase_space.gt.0) then
+         if(myid.eq.0)write(error_unit,*) "Error: sampling method is not supported in GPU version"
+         call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+         call MPI_FINALIZE(ierr)
+      end if
+#endif
     close(1)
 
 
@@ -360,6 +374,12 @@ contains
        call move_alloc(qrtmp,qrotations)
     end if
     deallocate(ID_Equi,valid)
+
+   ! update the global variables in the device
+   !$acc update device(T, scalebroad, Ngrid, nptk, Nbands, rlattvec, ngrid,masses,types, omega_max, num_sample_process_3ph_phase_space,onlyharmonic)
+
+   
+
   end subroutine read_config
 
   ! Free the memory used by all config structures.
