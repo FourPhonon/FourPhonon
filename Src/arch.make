@@ -1,7 +1,7 @@
 # arch.make
 
 # Compiler
-export CPU_COMPILER = mpif90
+export CPU_COMPILER = mpiifort
 export GPU_COMPILER = nvfortran
 
 # CPU and GPU FFLAGS
