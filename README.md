@@ -18,7 +18,7 @@ The compilation of `FourPhonon` is the same as the previous `ShengBTE`: after se
   | Version | Feature | Key Contributors | Reference |
   |---------|---------|------------------|-----------|
   | v1.0 | FourPhonon original software package | Zherui Han, Xiaolong Yang, Wu Li, Tianli Feng, Xiulin Ruan | [Han et al., CPC **270**, 108179 (2022)](https://doi.org/10.1016/j.cpc.2021.108179)<br>[Feng & Ruan, PRB **93**, 045202 (2016)](https://journals.aps.org/prb/abstract/10.1103/PhysRevB.93.045202)<br>[Feng et al., PRB **96**, 161201 (2017)](https://journals.aps.org/prb/abstract/10.1103/PhysRevB.96.161201) |
-  | v1.1 | Sampling acceleration methods | Ziqi Guo, Guang Lin, Xiulin Ruan | [Guo et al., npj Comput. Mater. **10**, 31 (2023)](https://www.nature.com/articles/s41524-023-01020-9)<br>[Guo et al., npj Comput. Mater. **10**, 31 (2024)](https://www.nature.com/articles/s41524-024-01215-8) |
+  | v1.1 | Sampling acceleration methods | Ziqi Guo, Zherui Han, Guang Lin, Xiulin Ruan | [Guo et al., npj Comput. Mater. **10**, 31 (2023)](https://www.nature.com/articles/s41524-023-01020-9)<br>[Guo et al., npj Comput. Mater. **10**, 31 (2024)](https://www.nature.com/articles/s41524-024-01215-8) |
   | v1.2 | Iterative solver, TDEP force constants | Zherui Han, Abdulaziz Alkandari, Wenjiang Zhou, Xiulin Ruan |  |
   | v1.3 | GPU acceleration | Ziqi Guo, Xiulin Ruan, Guang Lin | [Guo et al., arXiv:2510.00518](https://arxiv.org/abs/2510.00518) |
   | v1.3 | MPI+OpenMP hybrid scheme | Ziqi Guo, Zherui Han, Xiulin Ruan |  |
