@@ -975,7 +975,8 @@ module processes
  
   
    ! Wrapper around NP_plus and NP_minus that splits the work among processors.
-   subroutine NP_driver(energy,velocity,Nlist,List,IJK,&
+   subroutine NP_driver(mode_selective_scatt_rate,band_index,q_point_index,&
+        energy,velocity,Nlist,List,IJK,&
         N_plus,Pspace_plus_total,N_minus,Pspace_minus_total)
       implicit none
    
@@ -992,6 +993,11 @@ module processes
       real(kind=8),intent(out) :: Pspace_minus_total(Nbands,Nlist)
    
       integer(kind=4) :: mm,i,ll
+
+      !----- Mode Selective Scatt Rate Calcs ------ 
+      logical, intent(in) :: mode_selective_scatt_rate
+      integer(kind=4),intent(in) :: band_index, q_point_index
+      !----- Mode Selective Scatt Rate Calcs ------
 
       integer(kind=4) :: N_plus_reduce(Nlist*Nbands)
       integer(kind=4) :: N_minus_reduce(Nlist*Nbands)
@@ -1024,6 +1030,13 @@ module processes
          do mm=chunkstart,chunkend
             i=modulo(mm-1,Nbands)+1
             ll=int((mm-1)/Nbands)+1
+            
+            !----- Mode Selective Scatt Rate Calcs ------ 
+            if (mode_selective_scatt_rate) then 
+               if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+            endif
+            !----- Mode Selective Scatt Rate Calcs ------ 
+
             if (energy(List(int((mm-1)/Nbands)+1),modulo(mm-1,Nbands)+1).le.omega_max) then
                if (num_sample_process_3ph_phase_space==-1) then ! do not sample
                   call NP_plus(mm,energy,velocity,Nlist,List,IJK,&
@@ -1668,7 +1681,8 @@ module processes
    end subroutine RTA_minus_sample
  
    ! Wrapper around 3ph RTA_plus and RTA_minus that splits the work among processors.
-   subroutine RTA_driver(energy,velocity,eigenvect,Nlist,List,IJK,&
+   subroutine RTA_driver(mode_selective_scatt_rate,band_index,q_point_index,&
+        energy,velocity,eigenvect,Nlist,List,IJK,&
         Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,rate_scatt,rate_scatt_plus,rate_scatt_minus,WP3_plus,WP3_minus)
       implicit none
    
@@ -1687,6 +1701,12 @@ module processes
       integer(kind=4),intent(in) :: Index_i(Ntri)
       integer(kind=4),intent(in) :: Index_j(Ntri)
       integer(kind=4),intent(in) :: Index_k(Ntri)
+
+     !----- Mode Selective Scatt Rate Calcs ------ 
+     logical, intent(in) :: mode_selective_scatt_rate
+     integer(kind=4),intent(in) :: band_index, q_point_index
+     !----- Mode Selective Scatt Rate Calcs ------
+
       real(kind=8),intent(out) :: rate_scatt(Nbands,Nlist),rate_scatt_plus(Nbands,Nlist),rate_scatt_minus(Nbands,Nlist)
       real(kind=8),intent(out) :: WP3_plus(Nbands,Nlist)
       real(kind=8),intent(out) :: WP3_minus(Nbands,Nlist)
@@ -1723,10 +1743,19 @@ module processes
          ! !$OMP & shared(energy,velocity,List,IJK,omega_max) &
          ! !$OMP & shared(WP3_plus_reduce,WP3_minus_reduce,rate_scatt_plus_reduce,rate_scatt_minus_reduce) &
          ! !$OMP & private(mm,i,ll,WP3_temp,Gamma_plus,Gamma_minus)
+
       !$OMP PARALLEL DO default(shared) schedule(dynamic,1) private(mm,i,ll,WP3_temp,Gamma_plus,Gamma_minus)
          do mm=chunkstart,chunkend
             i=modulo(mm-1,Nbands)+1
             ll=int((mm-1)/Nbands)+1
+
+            !----- Mode Selective Scatt Rate Calcs ------ 
+            if (mode_selective_scatt_rate) then 
+               if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+            endif
+            ! if (myid.eq.0) write(*,*) "band, q =", i, band_index, ll, q_point_index
+            !----- Mode Selective Scatt Rate Calcs ------ 
+
             if (energy(List(ll),i).le.omega_max) then
                if (num_sample_process_3ph==-1) then ! do not sample
                   call RTA_plus(mm,energy,velocity,eigenvect,Nlist,List,&
@@ -2741,7 +2770,8 @@ module processes
    end subroutine
  
    ! Wrapper around NP_plusplus,NP_plusminus and NP_minusminus that splits the work among processors.
-   subroutine NP_driver_4ph(energy,velocity,Nlist,List,IJK,&
+   subroutine NP_driver_4ph(mode_selective_scatt_rate, band_index, q_point_index,&
+          energy,velocity,Nlist,List,IJK,&
           N_plusplus,Pspace_plusplus_total,N_plusminus,Pspace_plusminus_total,N_minusminus,Pspace_minusminus_total)
      implicit none
    
@@ -2758,6 +2788,11 @@ module processes
       real(kind=8),intent(out) :: Pspace_plusplus_total(Nbands,Nlist)
       real(kind=8),intent(out) :: Pspace_plusminus_total(Nbands,Nlist)
       real(kind=8),intent(out) :: Pspace_minusminus_total(Nbands,Nlist)
+
+      !------ Mode Selective Scatt Rates Calcs ------
+      logical, intent(in) :: mode_selective_scatt_rate
+      integer(kind=4),intent(in) :: band_index, q_point_index
+      !------ Mode Selective Scatt Rates Calcs ------
  
       integer(kind=4) :: mm,i,ll
       integer(kind=8) :: N_plusplus_reduce(Nlist*Nbands)
@@ -2798,6 +2833,13 @@ module processes
          do mm=chunkstart,chunkend
             i=modulo(mm-1,Nbands)+1
             ll=int((mm-1)/Nbands)+1
+
+            !------ Mode Selective Scatt Rates Calcs ------
+            if (mode_selective_scatt_rate) then 
+               if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+            endif
+            !------ Mode Selective Scatt Rates Calcs ------
+
             if (energy(List(int((mm-1)/Nbands)+1),modulo(mm-1,Nbands)+1).le.omega_max) then
                if (num_sample_process_4ph_phase_space==-1) then ! do not sample
                   call NP_plusplus(mm,energy,velocity,Nlist,List,IJK,N_temp,Pspace_temp)
@@ -5166,7 +5208,8 @@ module processes
    end subroutine
  
    ! Wrapper around 4ph RTA subroutines with 3ph subroutines that splits the work among processors.
-   subroutine RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
+   subroutine RTA_driver_4ph(mode_selective_scatt_rate, band_index, q_point_index,&
+        energy,velocity,eigenvect,Nlist,List,IJK,&
         Ntri,Phi,R_j,R_k,R_l,Index_i,Index_j,Index_k,Index_l,&
         rate_scatt_4ph,rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
         WP4_plusplus,WP4_plusminus,WP4_minusminus)
@@ -5189,6 +5232,12 @@ module processes
       integer(kind=4),intent(in) :: Index_j(Ntri)
       integer(kind=4),intent(in) :: Index_k(Ntri)
       integer(kind=4),intent(in) :: Index_l(Ntri)
+
+      !------ Mode Selective Scatt Rates Calcs ------
+      logical, intent(in) :: mode_selective_scatt_rate
+      integer(kind=4),intent(in) :: band_index, q_point_index
+      !------ Mode Selective Scatt Rates Calcs ------
+
       integer(kind=4) :: i
       integer(kind=4) :: ll
       integer(kind=4) :: mm
@@ -5248,6 +5297,14 @@ module processes
          do mm=chunkstart,chunkend
             i=modulo(mm-1,Nbands)+1
             ll=int((mm-1)/Nbands)+1
+            
+            !------ Mode Selective Scatt Rates Calcs ------
+            if (mode_selective_scatt_rate) then 
+               if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+            endif
+            ! if (myid.eq.0) write(*,*) "band, q =", i, band_index, ll, q_point_index
+            !------ Mode Selective Scatt Rates Calcs ------
+
             if (energy(List(ll),i).le.omega_max) then
                if (num_sample_process_4ph==-1) then ! do not sample
                   call RTA_plusplus(mm,energy,velocity,eigenvect,Nlist,List,&

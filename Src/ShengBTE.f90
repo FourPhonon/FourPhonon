@@ -1,13 +1,14 @@
 !  FourPhonon: An extension module to ShengBTE for computing four-phonon scattering rates and thermal conductivity
-!  Copyright (C) 2021-2023 Zherui Han <zrhan@purdue.edu>
+!  Copyright (C) 2021-2026 Zherui Han <zrhan@purdue.edu>
+!  Copyright (C) 2023-2026 Ziqi Guo <gziqi@purdue.edu>
 !  Copyright (C) 2021-2022 Xiaolong Yang <xiaolongyang1990@gmail.com>
 !  Copyright (C) 2021 Wu Li <wu.li.phys2011@gmail.com>
 !  Copyright (C) 2021 Tianli Feng <Tianli.Feng2011@gmail.com>
-!  Copyright (C) 2021-2023 Xiulin Ruan <ruan@purdue.edu>
 !  Copyright (C) 2021 Wenjiang Zhou <wjzhou@stu.pku.edu.cn>
-!  Copyright (C) 2023 Ziqi Guo <gziqi@purdue.edu>
-!  Copyright (C) 2023 Guang Lin <guanglin@purdue.edu>
 !  Copyright (C) 2023 Abdulaziz Alkandari <aalkanda@purdue.edu>
+!  Copyright (C) 2026 Sreerag Sundaram <sreerag@iitb.ac.in>
+!  Copyright (C) 2023-2026 Guang Lin <guanglin@purdue.edu>
+!  Copyright (C) 2021-2026 Xiulin Ruan <ruan@purdue.edu>
 !
 !  ShengBTE, a solver for the Boltzmann Transport Equation for phonons
 !  Copyright (C) 2012-2017 Wu Li <wu.li.phys2011@gmail.com>
@@ -373,6 +374,16 @@ program ShengBTE
      close(1)
   end if
  
+  ! Stop here for Stage 1 of Mode-selective scattering rate when feature is turned on
+  !------ Mode Selective Scatt Rates Calcs: Stage 1 ------
+  if(mode_selective_scatt_rate==.true. .and. band_index==-1 .and. q_point_index==-1) then
+      write(*,*) "Info: Band index= ", band_index
+      write(*,*) "Info: q_point index= ", q_point_index
+      write(*,*) "Info: Stage 1 of mode_selective_scatt_rate, stopping here. Check BTE.qpoints_full"
+      call MPI_FINALIZE(ierr)
+      stop
+  end if
+  !------ Mode Selective Scatt Rates Calcs: Stage 1 ------
 
   allocate(rate_scatt(Nbands,Nlist))
   allocate(rate_scatt_plus(Nbands,Nlist))
@@ -432,14 +443,27 @@ program ShengBTE
       if(num_sample_process_3ph_phase_space.gt.0) write(*,*) "Info: num_sample_process_3ph_phase_space = ", num_sample_process_3ph_phase_space
    end if
    ! ----------- sampling method add -----------
+   
+   ! ----------- START: Mode Selective Scatt Rate Calc info  -----------
+   if(myid.eq.0.and.mode_selective_scatt_rate) then
+      write(*,*) "Info: Band index= ", band_index
+      write(*,*) "Info: q_point index= ", q_point_index
+
+      write(*,*) "Info: reduced q_point index= ", eqclasses(q_point_index)
+      q_point_index = eqclasses(q_point_index)
+   endif
+   ! ----------- END: Mode Selective Scatt Rate Calc info  -------------
+
 #ifdef CPU_VERSION
-  call NP_driver(energy,velocity,Nlist,List,IJK,&
+  call NP_driver(mode_selective_scatt_rate,band_index,q_point_index,&
+       energy,velocity,Nlist,List,IJK,&
        N_plus,Pspace_plus_total,N_minus,Pspace_minus_total)
 #endif
 #ifdef GPU_VERSION
    ! Intentionally use a CPU version here, as GPU calculated numbers of processes can be different,
    ! which may cause the matrix overflow in Ind_only functions
-  call NP_driver(energy,velocity,Nlist,List,IJK,&
+  call NP_driver(mode_selective_scatt_rate,band_index,q_point_index,&
+       energy,velocity,Nlist,List,IJK,&
        N_plus,Pspace_plus_total,N_minus,Pspace_minus_total)
 #endif
 
@@ -471,14 +495,16 @@ program ShengBTE
 
 
 #ifdef CPU_VERSION
-       call NP_driver_4ph(energy,velocity,Nlist,List,IJK,&
+       call NP_driver_4ph(mode_selective_scatt_rate,band_index,q_point_index,&
+         energy,velocity,Nlist,List,IJK,&
          N_plusplus,Pspace_plusplus_total,N_plusminus,&
          Pspace_plusminus_total,N_minusminus,Pspace_minusminus_total)
 #endif
 #ifdef GPU_VERSION
       ! Intentionally use a CPU version here, as GPU calculated numbers of processes can be different,
       ! which may cause the matrix overflow in Ind_only functions
-       call NP_driver_4ph(energy,velocity,Nlist,List,IJK,&
+       call NP_driver_4ph(mode_selective_scatt_rate,band_index,q_point_index,&
+         energy,velocity,Nlist,List,IJK,&
          N_plusplus,Pspace_plusplus_total,N_plusminus,&
          Pspace_plusminus_total,N_minusminus,Pspace_minusminus_total)
 
@@ -501,6 +527,11 @@ program ShengBTE
     open(1,file="BTE.Numprocess_4ph",status="replace")
     do i=1,Nbands
        do ll=1,Nlist
+          !------ Mode Selective Scatt Rates Calcs ------
+          if (mode_selective_scatt_rate) then 
+             if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+          endif
+          !------ Mode Selective Scatt Rates Calcs ------
           write(1,"(1X,I0,1X,I0,1X,I0)") N_plusplus(ll+Nlist*(i-1)),N_plusminus(ll+Nlist*(i-1)),N_minusminus(ll+Nlist*(i-1))
        end do
     end do
@@ -510,18 +541,40 @@ program ShengBTE
   if(myid.eq.0) then
      open(1,file="BTE.P3_plus",status="replace")
      do ll=1,Nlist
-        write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_plus_total(:,ll)
+        !------ Mode Selective Scatt Rates Calcs ------
+        if (mode_selective_scatt_rate) then 
+           if (.not.(ll.eq.q_point_index)) cycle    
+           write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_plus_total(band_index,ll)
+        else
+        !------ Mode Selective Scatt Rates Calcs ------
+           write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_plus_total(:,ll)
+        endif
      end do
      close(1)
      open(1,file="BTE.P3_minus",status="replace")
      do ll=1,Nlist
-        write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_minus_total(:,ll)
+        !------ Mode Selective Scatt Rates Calcs ------
+        if (mode_selective_scatt_rate) then 
+           if (.not.(ll.eq.q_point_index)) cycle    
+           write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_minus_total(band_index,ll)
+        else
+        !------ Mode Selective Scatt Rates Calcs ------
+           write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_minus_total(:,ll)
+        endif
      end do
      close(1)
      open(1,file="BTE.P3",status="replace")
      do ll=1,Nlist
-        write(1,"("//trim(adjustl(aux))//"E20.10)") 2.*(Pspace_plus_total(:,ll)+&
-             Pspace_minus_total(:,ll)/2.)/3.
+        !------ Mode Selective Scatt Rates Calcs ------
+        if (mode_selective_scatt_rate) then 
+           if (.not.(ll.eq.q_point_index)) cycle    
+           write(1,"("//trim(adjustl(aux))//"E20.10)") 2.*(Pspace_plus_total(band_index,ll)+&
+               Pspace_minus_total(band_index,ll)/2.)/3.
+        else
+        !------ Mode Selective Scatt Rates Calcs ------
+           write(1,"("//trim(adjustl(aux))//"E20.10)") 2.*(Pspace_plus_total(:,ll)+&
+               Pspace_minus_total(:,ll)/2.)/3.
+        endif
      end do
      close(1)
      do ii=1,Nlist
@@ -542,23 +595,52 @@ program ShengBTE
      if (four_phonon) then
         open(1,file="BTE.P4_plusplus",status="replace")
         do ll=1,Nlist
-            write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_plusplus_total(:,ll)
+            !------ Mode Selective Scatt Rates Calcs ------
+            if (mode_selective_scatt_rate) then 
+               if (.not.(ll.eq.q_point_index)) cycle       
+               write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_plusplus_total(band_index,ll)
+            else
+            !------ Mode Selective Scatt Rates Calcs ------   
+               write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_plusplus_total(:,ll)
+            endif
         end do
         close(1)
         open(1,file="BTE.P4_plusmius",status="replace")
         do ll=1,Nlist
-            write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_plusminus_total(:,ll)
+            !------ Mode Selective Scatt Rates Calcs ------
+            if (mode_selective_scatt_rate) then 
+               if (.not.(ll.eq.q_point_index)) cycle       
+               write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_plusminus_total(band_index,ll)
+            else
+            !------ Mode Selective Scatt Rates Calcs ------ 
+               write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_plusminus_total(:,ll)
+            endif
         end do
         close(1)
         open(1,file="BTE.P4_minusminus",status="replace")
         do ll=1,Nlist
-            write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_minusminus_total(:,ll)
+            !------ Mode Selective Scatt Rates Calcs ------
+            if (mode_selective_scatt_rate) then 
+               if (.not.(ll.eq.q_point_index)) cycle       
+               write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_minusminus_total(band_index,ll)
+            else
+            !------ Mode Selective Scatt Rates Calcs ------ 
+               write(1,"("//trim(adjustl(aux))//"E20.10)") Pspace_minusminus_total(:,ll)
+            endif
         end do
         close(1)
         open(1,file="BTE.P4",status="replace")
         do ll=1,Nlist
-            write(1,"("//trim(adjustl(aux))//"E20.10)") 6.*(Pspace_plusplus_total(:,ll)+&
-                Pspace_plusminus_total(:,ll)+Pspace_minusminus_total(:,ll))/7.
+            !------ Mode Selective Scatt Rates Calcs ------
+            if (mode_selective_scatt_rate) then 
+               if (.not.(ll.eq.q_point_index)) cycle       
+               write(1,"("//trim(adjustl(aux))//"E20.10)") 6.*(Pspace_plusplus_total(band_index,ll)+&
+                   Pspace_plusminus_total(band_index,ll)+Pspace_minusminus_total(band_index,ll))/7.
+            else
+            !------ Mode Selective Scatt Rates Calcs ------ 
+               write(1,"("//trim(adjustl(aux))//"E20.10)") 6.*(Pspace_plusplus_total(:,ll)+&
+                   Pspace_plusminus_total(:,ll)+Pspace_minusminus_total(:,ll))/7.
+            endif
         end do
         close(1)
         do ii=1,Nlist
@@ -601,19 +683,22 @@ program ShengBTE
             call change_directory(trim(adjustl(path))//C_NULL_CHAR)
          end if
 #ifdef CPU_VERSION
-         call RTA_driver(energy,velocity,eigenvect,Nlist,List,IJK,&
+         call RTA_driver(mode_selective_scatt_rate,band_index,q_point_index,&
+               energy,velocity,eigenvect,Nlist,List,IJK,&
                Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
                rate_scatt,rate_scatt_plus,rate_scatt_minus,Pspace_plus_total,Pspace_minus_total)
 #endif
 #ifdef GPU_VERSION   
          ! Intentionally use a CPU version here for onlyharmonic calculation
-         call RTA_driver(energy,velocity,eigenvect,Nlist,List,IJK,&
+         call RTA_driver(mode_selective_scatt_rate,band_index,q_point_index,&
+               energy,velocity,eigenvect,Nlist,List,IJK,&
                Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
                rate_scatt,rate_scatt_plus,rate_scatt_minus,Pspace_plus_total,Pspace_minus_total)
 #endif
 
          if (four_phonon) then ! four-phonon function
-            call RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
+            call RTA_driver_4ph(mode_selective_scatt_rate,band_index,q_point_index,&   
+                  energy,velocity,eigenvect,Nlist,List,IJK,&
                   Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
                   rate_scatt_4ph,&
                   rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
@@ -623,6 +708,11 @@ program ShengBTE
             open(1,file="BTE.WP3_plus",status="replace")
             do i=1,Nbands
                do ll=1,Nlist
+                  !------ Mode Selective Scatt Rates Calcs ------
+                  if (mode_selective_scatt_rate) then 
+                     if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+                  endif
+                  !------ Mode Selective Scatt Rates Calcs ------
                   write(1,"(6E14.5)") energy(list(ll),i),Pspace_plus_total(i,ll)                
                end do
             end do
@@ -630,6 +720,11 @@ program ShengBTE
             open(1,file="BTE.WP3_minus",status="replace")
             do i=1,Nbands
                do ll=1,Nlist
+                  !------ Mode Selective Scatt Rates Calcs ------
+                  if (mode_selective_scatt_rate) then 
+                     if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+                  endif
+                  !------ Mode Selective Scatt Rates Calcs ------
                   write(1,"(6E14.5)") energy(list(ll),i),Pspace_minus_total(i,ll)
                end do
             end do
@@ -637,6 +732,11 @@ program ShengBTE
             open(1,file="BTE.WP3",status="replace")
             do i=1,Nbands
                do ll=1,Nlist
+                  !------ Mode Selective Scatt Rates Calcs ------
+                  if (mode_selective_scatt_rate) then 
+                     if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+                  endif
+                  !------ Mode Selective Scatt Rates Calcs ------
                   write(1,"(2E14.5)") energy(list(ll),i),&
                         Pspace_plus_total(i,ll)+Pspace_minus_total(i,ll)
                end do
@@ -646,6 +746,11 @@ program ShengBTE
               open(1,file="BTE.WP4_plusplus",status="replace")
               do i=1,Nbands
                 do ll=1,Nlist
+                    !------ Mode Selective Scatt Rates Calcs ------
+                    if (mode_selective_scatt_rate) then 
+                       if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+                    endif
+                    !------ Mode Selective Scatt Rates Calcs ------
                     write(1,"(6E14.5)") energy(list(ll),i),Pspace_plusplus_total(i,ll)
                 end do
               end do
@@ -653,6 +758,11 @@ program ShengBTE
               open(1,file="BTE.WP4_plusminus",status="replace")
               do i=1,Nbands
                 do ll=1,Nlist
+                    !------ Mode Selective Scatt Rates Calcs ------
+                    if (mode_selective_scatt_rate) then 
+                       if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+                    endif
+                    !------ Mode Selective Scatt Rates Calcs ------
                     write(1,"(6E14.5)") energy(list(ll),i),Pspace_plusminus_total(i,ll)
                 end do
               end do
@@ -660,6 +770,11 @@ program ShengBTE
               open(1,file="BTE.WP4_minusminus",status="replace")
               do i=1,Nbands
                 do ll=1,Nlist
+                    !------ Mode Selective Scatt Rates Calcs ------
+                    if (mode_selective_scatt_rate) then 
+                       if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+                    endif
+                    !------ Mode Selective Scatt Rates Calcs ------
                     write(1,"(6E14.5)") energy(list(ll),i),Pspace_minusminus_total(i,ll)
                 end do
               end do
@@ -667,6 +782,11 @@ program ShengBTE
               open(1,file="BTE.WP4",status="replace")
               do i=1,Nbands
                 do ll=1,Nlist
+                    !------ Mode Selective Scatt Rates Calcs ------
+                    if (mode_selective_scatt_rate) then 
+                       if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+                    endif
+                    !------ Mode Selective Scatt Rates Calcs ------
                     write(1,"(2E14.5)") energy(list(ll),i),Pspace_plusplus_total(i,ll)+&
                                         Pspace_plusminus_total(i,ll)+Pspace_minusminus_total(i,ll)
                 end do
@@ -837,7 +957,8 @@ program ShengBTE
             end_time = MPI_Wtime()
             write(*,*) "Timing: Start calculating 4ph processes on CPU, RTA solver: ", end_time - start_time, " s"
          end if
-         call RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
+         call RTA_driver_4ph(mode_selective_scatt_rate,band_index,q_point_index,&
+               energy,velocity,eigenvect,Nlist,List,IJK,&
                Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
                rate_scatt_4ph,&
                rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
@@ -896,7 +1017,8 @@ program ShengBTE
             end_time = MPI_Wtime()
             write(*,*) "Timing: Start calculating 3ph processes on CPU, RTA solver: ", end_time - start_time, " s"
          end if
-         call RTA_driver(energy,velocity,eigenvect,Nlist,List,IJK,&
+         call RTA_driver(mode_selective_scatt_rate,band_index,q_point_index,&
+               energy,velocity,eigenvect,Nlist,List,IJK,&
                Ntri,Phi,R_j,R_k,Index_i,Index_j,Index_k,&
                rate_scatt,rate_scatt_plus,&
                rate_scatt_minus,Pspace_plus_total,Pspace_minus_total)
@@ -957,7 +1079,8 @@ program ShengBTE
             end_time = MPI_Wtime()
             write(*,*) "Timing: Start calculating 4ph processes on CPU, RTA solver: ", end_time - start_time, " s"
          end if
-         call RTA_driver_4ph(energy,velocity,eigenvect,Nlist,List,IJK,&
+         call RTA_driver_4ph(mode_selective_scatt_rate,band_index,q_point_index,&
+            energy,velocity,eigenvect,Nlist,List,IJK,&
             Ntri_4fc,Psi,R_s,R_t,R_u,Index_r,Index_s,Index_t,Index_u,&
             rate_scatt_4ph,&
             rate_scatt_plusplus,rate_scatt_plusminus,rate_scatt_minusminus,&
@@ -1126,21 +1249,36 @@ program ShengBTE
           open(1,file="BTE.WP3_plus",status="replace")
           do i=1,Nbands
             do ll=1,Nlist
-                write(1,"(6E14.5)") energy(list(ll),i),Pspace_plus_total(i,ll)
+               !------ Mode Selective Scatt Rates Calcs ------
+               if (mode_selective_scatt_rate) then 
+                  if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+               endif
+               !------ Mode Selective Scatt Rates Calcs ------
+               write(1,"(6E14.5)") energy(list(ll),i),Pspace_plus_total(i,ll)
             end do
           end do
           close(1)
           open(1,file="BTE.WP3_minus",status="replace")
           do i=1,Nbands
             do ll=1,Nlist
-                write(1,"(6E14.5)") energy(list(ll),i),Pspace_minus_total(i,ll)
+               !------ Mode Selective Scatt Rates Calcs ------
+               if (mode_selective_scatt_rate) then 
+                  if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+               endif
+               !------ Mode Selective Scatt Rates Calcs ------
+               write(1,"(6E14.5)") energy(list(ll),i),Pspace_minus_total(i,ll)
             end do
           end do
           close(1)
           open(1,file="BTE.WP3",status="replace")
           do i=1,Nbands
             do ll=1,Nlist
-                write(1,"(2E14.5)") energy(list(ll),i),Pspace_plus_total(i,ll)+Pspace_minus_total(i,ll)
+               !------ Mode Selective Scatt Rates Calcs ------
+               if (mode_selective_scatt_rate) then 
+                  if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+               endif
+               !------ Mode Selective Scatt Rates Calcs ------
+               write(1,"(2E14.5)") energy(list(ll),i),Pspace_plus_total(i,ll)+Pspace_minus_total(i,ll)
             end do
           end do
           close(1)
@@ -1148,6 +1286,11 @@ program ShengBTE
             open(1,file="BTE.WP4_plusplus",status="replace")
             do i=1,Nbands
               do ll=1,Nlist
+                  !------ Mode Selective Scatt Rates Calcs ------
+                  if (mode_selective_scatt_rate) then 
+                     if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+                  endif
+                  !------ Mode Selective Scatt Rates Calcs ------
                   write(1,"(2E14.5)") energy(list(ll),i),Pspace_plusplus_total(i,ll)
               end do
             end do
@@ -1155,6 +1298,11 @@ program ShengBTE
             open(1,file="BTE.WP4_plusminus",status="replace")
             do i=1,Nbands
               do ll=1,Nlist
+                  !------ Mode Selective Scatt Rates Calcs ------
+                  if (mode_selective_scatt_rate) then 
+                     if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+                  endif
+                  !------ Mode Selective Scatt Rates Calcs ------
                   write(1,"(2E14.5)") energy(list(ll),i),Pspace_plusminus_total(i,ll)
               end do
             end do
@@ -1162,6 +1310,11 @@ program ShengBTE
             open(1,file="BTE.WP4_minusminus",status="replace")
             do i=1,Nbands
               do ll=1,Nlist
+                  !------ Mode Selective Scatt Rates Calcs ------
+                  if (mode_selective_scatt_rate) then 
+                     if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+                  endif
+                  !------ Mode Selective Scatt Rates Calcs ------
                   write(1,"(2E14.5)") energy(list(ll),i),Pspace_minusminus_total(i,ll)
               end do
             end do
@@ -1169,6 +1322,11 @@ program ShengBTE
             open(1,file="BTE.WP4",status="replace")
             do i=1,Nbands
               do ll=1,Nlist
+                  !------ Mode Selective Scatt Rates Calcs ------
+                  if (mode_selective_scatt_rate) then 
+                     if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+                  endif
+                  !------ Mode Selective Scatt Rates Calcs ------
                   write(1,"(2E14.5)") energy(list(ll),i),Pspace_plusplus_total(i,ll)+&
                                       Pspace_plusminus_total(i,ll)+Pspace_minusminus_total(i,ll)
               end do
@@ -1184,6 +1342,11 @@ program ShengBTE
             open(3,file="BTE.w_3ph_minus",status="replace")
             do i=1,Nbands
               do ll=1,Nlist
+                  !------ Mode Selective Scatt Rates Calcs ------
+                  if (mode_selective_scatt_rate) then 
+                     if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+                  endif
+                  !------ Mode Selective Scatt Rates Calcs ------
                   write(1,"(6E20.10)") energy(list(ll),i),rate_scatt(i,ll)
                   write(2,"(6E20.10)") energy(list(ll),i),rate_scatt_plus(i,ll)
                   write(3,"(6E20.10)") energy(list(ll),i),rate_scatt_minus(i,ll)
@@ -1201,6 +1364,11 @@ program ShengBTE
               open(4,file="BTE.w_4ph_minusminus",status="replace")
               do i=1,Nbands
                 do ll=1,Nlist
+                    !------ Mode Selective Scatt Rates Calcs ------
+                    if (mode_selective_scatt_rate) then 
+                       if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+                    endif
+                    !------ Mode Selective Scatt Rates Calcs ------
                     write(1,"(6E20.10)") energy(list(ll),i),rate_scatt_4ph(i,ll)
                     write(2,"(6E20.10)") energy(list(ll),i),rate_scatt_plusplus(i,ll)
                     write(3,"(6E20.10)") energy(list(ll),i),rate_scatt_plusminus(i,ll)
@@ -1223,11 +1391,23 @@ program ShengBTE
         open(1,file="BTE.w",status="replace")
         do i=1,Nbands
            do ll = 1,Nlist
+              !------ Mode Selective Scatt Rates Calcs ------
+              if (mode_selective_scatt_rate) then 
+                 if (.not.(i.eq.band_index .and. ll.eq.q_point_index)) cycle    
+              endif
+              !------ Mode Selective Scatt Rates Calcs ------
               write(1,"(2E20.10)") energy(list(ll),i),rate_scatt(i,ll)
            end do
         end do
         close(1)
      end if
+
+     !------ Mode Selective Scatt Rates Calcs ------
+     if (mode_selective_scatt_rate) then 
+         if (myid.eq.0) write(*,*) "Info: mode_selective_scatt_rate=.true., thermal conductivity not calculated"
+         cycle
+     endif
+     !------ Mode Selective Scatt Rates Calcs ------
 
      tau_zero=0.d0
      do ll = 1,Nlist

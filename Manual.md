@@ -281,7 +281,40 @@ For 3rd/4th-IFCs in TDEP format, we developed a standalone script to convert the
     ```
     
     this converts TDEP 3rd-IFCs (`outfile.forceconstant_thirdorder`) of a two-atom unitcell to ShengBTE format.
-    
+
+## Single-Mode Phonon Scattering Rate Calculation
+
+This tool calculates the scattering rate for a specific phonon mode. We break it down into a two-stage process: 
+Stage 1 - You identify the phonon mode indices (q-point and band), and 
+Stage 2 - Calculate scattering rate for the phonon mode of interest.
+
+To use it, do the following:
+
+Stage 1:
+ 
+ - Activate the feature by setting the flag `mode_selective_scatt_rate = .TRUE.`
+ - Set the initial parameters `q_point_index = -1` and `band_index = -1`. Then, run the calculation.
+ - After the calculation completes (it would generally only take a few seconds), open the output file BTE.qpoints_full.
+      This file lists all q-points in `ngrid(1) x ngrid(2) x ngrid(3)` Γ-centered regular grid. The 1st column is a sequentially increasing q-point index, the 2nd column contains the index of the equivalent irreducible q-point numbered in the irreducible wedge, and the 3 remaining columns are the relative coordinates with respect to the reciprocal lattice vectors for the q-point.
+ - Find the coordinates of the q-point you want to analyze from columns 3–5, then note the corresponding q-point index from column 1. This will be your `q_point_index`.
+ - At each q-point, the phonon modes are arranged in order of increasing energy, and the band index is assigned based on this order. The `band_index` will therefore lie between 1 and 3*(number of atoms in the unit cell).
+ - Select the energy level / band of interest. This will be your `band_index`.
+ - Proceed to stage 2. 
+
+Stage 2:
+
+- Update `q_point_index` and `band_index` with values corresponding to the phonon mode of your choice.
+- Run the calculation to get the scattering rate for your chosen phonon mode.
+- All results are written to the same files (`BTE.P3`, `BTE.w`, `BTE.w_3ph`, etc.) (read the `Output files` section below).
+- The output will only contain the values corresponding to the selected phonon mode.
+- For instance, three-phonon scattering rate (in `BTE.w_3ph`) for a chosen phonon mode looks like:
+  ```BTE.w_3ph
+      0.7701645642E+02    0.3141667394E+00 
+  ```
+  Here the mode frequency is `0.7701645642E+02` and its scattering rate is `0.3141667394E+00`.
+
+**Note**: If you already know the desired `q_point_index`, you can skip Stage 1 and proceed directly to Stage 2
+
 
 ## Output files
 

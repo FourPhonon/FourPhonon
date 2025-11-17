@@ -22,6 +22,7 @@ The compilation of `FourPhonon` is the same as the previous `ShengBTE`: after se
   | v1.2 | Iterative solver, TDEP force constants | Zherui Han, Abdulaziz Alkandari, Wenjiang Zhou, Xiulin Ruan |  |
   | v1.3 | GPU acceleration | Ziqi Guo, Xiulin Ruan, Guang Lin | [Guo et al., arXiv:2510.00518](https://arxiv.org/abs/2510.00518) |
   | v1.3 | MPI+OpenMP hybrid scheme | Ziqi Guo, Zherui Han, Xiulin Ruan |  |
+  |  | Mode selective scattering rate calculations | Sreeag, Ziqi Guo, Xiulin Ruan |  |
 
 
   ## All Contributors
@@ -33,6 +34,7 @@ The compilation of `FourPhonon` is the same as the previous `ShengBTE`: after se
   - **Tianli Feng** - [Tianli.Feng2011@gmail.com](mailto:Tianli.Feng2011@gmail.com)
   - **Wenjiang Zhou** - [wjzhou@stu.pku.edu.cn](mailto:wjzhou@stu.pku.edu.cn)
   - **Abdulaziz Alkandari** - [aalkanda@purdue.edu](mailto:aalkanda@purdue.edu)
+  - **Sreerag** - [sundar49@purdue.edu](mailto:sundar49@purdue.edu)
   - **Guang Lin** - [guanglin@purdue.edu](mailto:guanglin@purdue.edu)
   - **Xiulin Ruan** - [ruan@purdue.edu](mailto:ruan@purdue.edu)
 

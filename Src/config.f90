@@ -8,27 +8,39 @@ module config
 
   integer(kind=4) :: nelements,natoms,ngrid(3),norientations
   namelist /allocations/ nelements,natoms,ngrid,norientations
+
   real(kind=8) :: lfactor,lattvec(3,3),epsilon(3,3)
   character(len=3),allocatable :: elements(:)
   integer(kind=4),allocatable :: types(:),orientations(:,:)
   integer(kind=4) :: scell(3)
   real(kind=8),allocatable :: positions(:,:),masses(:),gfactors(:),born(:,:,:)
+
   namelist /crystal/ lfactor,lattvec,elements,types,positions,masses,gfactors,&
        epsilon,born,scell,orientations
+
   integer(kind=4) :: maxiter,nticks
   real(kind=8) :: T,scalebroad,rmin,rmax,dr,eps
   real(kind=8) :: T_min,T_max,T_step,omega_max,Length
   real(kind=8) :: Ewald ! used for polar
 
   integer(kind=4) :: num_sample_process_3ph,num_sample_process_3ph_phase_space, num_sample_process_4ph, num_sample_process_4ph_phase_space
+  !----- Mode Selective Scattering Rate Calculations ------
+  integer(kind=4) :: q_point_index
+  integer(kind=4) :: band_index
+  !----- Mode Selective Scattering Rate Calculations ------
+
   namelist /parameters/ T,scalebroad,rmin,rmax,dr,maxiter,nticks,eps,&
            T_min,T_max,T_step,omega_max,Length,Ewald, &
-           num_sample_process_3ph,num_sample_process_3ph_phase_space, num_sample_process_4ph,num_sample_process_4ph_phase_space
+           num_sample_process_3ph,num_sample_process_3ph_phase_space, num_sample_process_4ph,num_sample_process_4ph_phase_space, &
+           q_point_index, band_index
 
   logical :: nonanalytic,convergence,isotopes,autoisotopes,nanowires,onlyharmonic,espresso,tdep,&
-             four_phonon,four_phonon_iteration,nanolength
+             four_phonon,four_phonon_iteration,nanolength, &
+             mode_selective_scatt_rate
+
   namelist /flags/ nonanalytic,convergence,isotopes,autoisotopes,&
-       nanowires,onlyharmonic,espresso,tdep,four_phonon,four_phonon_iteration,nanolength
+       nanowires,onlyharmonic,espresso,tdep,four_phonon,four_phonon_iteration,nanolength, &
+       mode_selective_scatt_rate
 
   integer(kind=4) :: nbands,nptk,nwires
   real(kind=8) :: cgrid,V,rV,rlattvec(3,3),slattvec(3,3)
@@ -142,6 +154,11 @@ contains
     num_sample_process_4ph_phase_space = -1
    ! ----------- end sampling method add -----------
 
+   ! ----------- START: for mode selective scatt rate calcs -----------
+   q_point_index = -9999 
+   band_index= -9999 
+   ! ----------- END: for mode selective scatt rate calcs -------------
+
     read(1,nml=parameters)
     if ((T.le.0.).and.(T_min.le.0)) then
        if(myid.eq.0)write(error_unit,*) "Error: T must be >0 K"
@@ -162,6 +179,7 @@ contains
        call MPI_BARRIER(MPI_COMM_WORLD,ierr)
        call MPI_FINALIZE(ierr)
     end if
+
     nonanalytic=.true.
     convergence=.true.
     isotopes=.true.
@@ -174,6 +192,10 @@ contains
     ! Four-phonon namelist
     four_phonon=.false.
     four_phonon_iteration=.false.
+    ! ----------- START: for mode selective scatt rate calcs -----------   
+    mode_selective_scatt_rate=.false.
+    ! ----------- END: for mode selective scatt rate calcs -------------   
+
     read(1,nml=flags)
     if(four_phonon_iteration.and.convergence.eq. .false.) then
       if(myid.eq.0)write(error_unit,*) "Error: four_phonon_iteration=.TRUE. but convergence=.FALSE."
@@ -220,6 +242,37 @@ contains
     end if
    ! ----------- end sampling method add -----------
 
+   ! ----------- START: for mode selective scatt rate calcs -----------   
+    if(mode_selective_scatt_rate.and.convergence) then
+      if(myid.eq.0)write(error_unit,*) "Error: mode_selective_scatt_rate is not compatible with convergence=.TRUE."
+      call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+      call MPI_FINALIZE(ierr)
+    end if
+    if(mode_selective_scatt_rate) then
+      if((band_index<=0 .and. band_index/=-1) .or. band_index>(3*natoms)) then
+         if(myid.eq.0)write(error_unit,*) "Error: mode_selective_scatt_rate = True. Band indices should lie between 1 and ", (3 * natoms)
+         call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+         call MPI_FINALIZE(ierr)
+      endif
+      
+      !! Noticed errors with the reading of the input parameters variables. Had to include this to be on the safer side.
+      !! This line essentially re-reads the parameter variables and allocates it to their respective variables.
+      rewind(1)  
+      read(1,nml=parameters)
+
+      if((q_point_index<=0 .and. q_point_index/=-1) .or. q_point_index>product(ngrid)) then
+         if(myid.eq.0)write(error_unit,*) "Error: mode_selective_scatt_rate = True. q-point indices should lie between 1 and ", product(ngrid)
+         call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+         call MPI_FINALIZE(ierr)
+      end if
+      if(band_index>(3*natoms)) then
+         if(myid.eq.0)write(error_unit,*) "Error: mode_selective_scatt_rate=.TRUE, input indices should not exceed ", 3*natoms, " in unit cell"
+         call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+         call MPI_FINALIZE(ierr)
+      end if
+    end if
+   ! ----------- END: for mode selective scatt rate calcs -------------   
+
 #ifdef GPU_VERSION
       ! if sampling method is used, stop the code
       if(num_sample_process_3ph.gt.0 .or. num_sample_process_3ph_phase_space.gt.0 .or. num_sample_process_4ph.gt.0 .or. num_sample_process_4ph_phase_space.gt.0) then
@@ -227,6 +280,13 @@ contains
          call MPI_BARRIER(MPI_COMM_WORLD,ierr)
          call MPI_FINALIZE(ierr)
       end if
+      ! ----------- START: for mode selective scatt rate calcs -----------   
+      if(mode_selective_scatt_rate) then
+         if(myid.eq.0)write(error_unit,*) "Error: mode_selective_scatt_rate feature is not supported in GPU version"
+         call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+         call MPI_FINALIZE(ierr)
+      end if
+      ! ----------- END: for mode selective scatt rate calcs -----------   
 #endif
     close(1)
 
