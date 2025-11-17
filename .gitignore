@@ -8,9 +8,5 @@ ShengBTE_gpu
 ShengBTE_cpu
 
 
-BTE.IndofPhonon_plusminus
-BTE.IndofPhonon_plusplus
-BTE.IndofPhonon_minusminus
-
 *.log
 
