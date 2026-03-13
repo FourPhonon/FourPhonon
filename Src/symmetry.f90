@@ -112,7 +112,7 @@ contains
          clattice,cpositions,ctypes,cnatoms,symprec)
     i=spg_get_international(intertmp,clattice, cpositions,&
          ctypes,cnatoms,symprec)
-    international=intertmp(1:10)
+    international=intertmp(1:index(intertmp, C_NULL_CHAR)-1)
     nops=newnops
     ! Transform from C to Fortran order.
     do i=1,nops
