@@ -2,7 +2,7 @@
 
 # Compiler
 export CPU_COMPILER = mpiifort
-export GPU_COMPILER = mpif90  # nvfortran in some env
+export GPU_COMPILER = nvfortran  # Or using `mpif90` wrapper
 
 # CPU and GPU FFLAGS
 CPU_FFLAGS = -qopenmp -traceback -O2 -fpp -DCPU_VERSION  #-static_intel   -debug 
