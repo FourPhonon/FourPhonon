@@ -2,7 +2,7 @@
 
 # Compiler
 export CPU_COMPILER = mpiifort
-export GPU_COMPILER = mpif90
+export GPU_COMPILER = mpif90  # nvfortran in some env
 
 # CPU and GPU FFLAGS
 CPU_FFLAGS = -qopenmp -traceback -O2 -fpp -DCPU_VERSION  #-static_intel   -debug 
@@ -18,7 +18,10 @@ LDFLAGS = -lsymspg
 LDFLAGS += -latomic
 export LDFLAGS
 
-MKLROOT = please find with "echo $MKLROOT"
+# Set MKLROOT manually if it's not in your environment:
+# MKLROOT = /path/to/your/mkl
+# You can find it with "echo $MKLROOT"
+
 MKL = $(MKLROOT)/lib/intel64/libmkl_lapack95_lp64.a -Wl,--start-group \
       $(MKLROOT)/lib/intel64/libmkl_intel_lp64.a \
       $(MKLROOT)/lib/intel64/libmkl_sequential.a \
