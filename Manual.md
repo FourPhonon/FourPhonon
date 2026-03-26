@@ -54,7 +54,7 @@ FourPhonon supports GPU acceleration using OpenACC directives for NVIDIA GPUs. T
 
 ### GPU compilation requirements
 
-- **Compiler**: NVIDIA HPC SDK with `mpif90` compiler
+- **Compiler**: NVIDIA HPC SDK with `mpif90/nvfortran` compiler
 - **GPU architecture**: NVIDIA GPU with compute capability 6.0 or higher
 - **OpenACC**: Version 2.7 or later support required
 
@@ -63,7 +63,7 @@ FourPhonon supports GPU acceleration using OpenACC directives for NVIDIA GPUs. T
 Configure `Src/arch.make` for GPU compilation:
 
 ```makefile
-export GPU_COMPILER = mpif90
+export GPU_COMPILER = mpif90  # nvfortran in some env
 GPU_FFLAGS = -acc -Minfo=accel -Mpreprocess -g -cuda -gpu=ptxinfo,cc80 -mp -O2 -DGPU_VERSION -DGPU_ALL_MODE_PARALLELIZATION
 ```
 
