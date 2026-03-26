@@ -2489,7 +2489,7 @@ module processes
        ! ----------- sampling method add -----------
        integer(kind=8) :: rand_num, iter, total_process, matrix_iter, temp_int
        real :: rand_matrix(num_sample_process_4ph_phase_space*5)
-       total_process = INT(Nbands,8)*nptk*Nbands*nptk*Nbands
+       total_process = INT(Nbands,8) * INT(nptk,8) * INT(Nbands,8) * INT(nptk,8) * INT(Nbands,8)
        ! ----------- end sampling method add -----------
  
        do ii=0,Ngrid(1)-1       ! G1 direction
@@ -2577,7 +2577,7 @@ module processes
        ! ----------- sampling method add -----------
        integer(kind=8) :: rand_num, iter, total_process, matrix_iter, temp_int
        real :: rand_matrix(num_sample_process_4ph_phase_space*5)
-       total_process = INT(Nbands,8)*nptk*Nbands*nptk*Nbands
+       total_process = INT(Nbands,8) * INT(nptk,8) * INT(Nbands,8) * INT(nptk,8) * INT(Nbands,8)
        ! ----------- end sampling method add -----------
  
        do ii=0,Ngrid(1)-1     ! G1 direction
@@ -2665,7 +2665,7 @@ module processes
        ! ----------- sampling method add -----------
        integer(kind=8) :: rand_num, iter, total_process, matrix_iter, temp_int
        real :: rand_matrix(num_sample_process_4ph_phase_space*5)
-       total_process = INT(Nbands,8)*nptk*Nbands*nptk*Nbands
+       total_process = INT(Nbands,8) * INT(nptk,8) * INT(Nbands,8) * INT(nptk,8) * INT(Nbands,8)
        ! ----------- end sampling method add -----------
  
  
@@ -4828,7 +4828,7 @@ module processes
     ! ----------- sampling method add -----------
     integer(kind=8) :: rand_num, iter, total_process, matrix_iter, temp_int
     real :: rand_matrix(num_sample_process_4ph*5)
-    total_process = INT(Nbands,8)*nptk*Nbands*nptk*Nbands
+    total_process = (((INT(Nbands,8) * INT(nptk,8)) * INT(Nbands,8)) * INT(nptk,8)) * INT(Nbands,8)
     ! ----------- end sampling method add -----------
  
  
@@ -4947,7 +4947,7 @@ module processes
     ! ----------- sampling method add -----------
     integer(kind=8) :: rand_num, iter, total_process, matrix_iter, temp_int
     real :: rand_matrix(num_sample_process_4ph*5)
-    total_process = INT(Nbands,8)*nptk*Nbands*nptk*Nbands
+    total_process = INT(Nbands,8) * INT(nptk,8) * INT(Nbands,8) * INT(nptk,8) * INT(Nbands,8)
     ! ----------- end sampling method add -----------
  
  
@@ -5068,7 +5068,7 @@ module processes
     ! ----------- sampling method add -----------
     integer(kind=8) :: rand_num, iter, total_process, matrix_iter, temp_int
     real :: rand_matrix(num_sample_process_4ph*5)
-    total_process = INT(Nbands,8)*nptk*Nbands*nptk*Nbands
+    total_process = INT(Nbands,8) * INT(nptk,8) * INT(Nbands,8) * INT(nptk,8) * INT(Nbands,8)
     ! ----------- end sampling method add -----------
  
  
