@@ -603,11 +603,16 @@ module processes
       allocate(WP3_minus_reduce(Nbands*Nlist))
       !  end allocate reduced output arrays
 
-      ! initialize the output arrays, actrally not necessary
+      ! initialize the output arrays
       WP3_plus=0.d0
       WP3_minus=0.d0
+      Indof2ndPhonon_plus=0
+      Indof3rdPhonon_plus=0
+      Indof2ndPhonon_minus=0
+      Indof3rdPhonon_minus=0
+      Gamma_plus=0.d0
+      Gamma_minus=0.d0
       !   end initialize the output arrays
-
 
       ! initialize the reduced output arrays
       rate_scatt_plus_reduce=0.d0
@@ -3138,7 +3143,7 @@ module processes
       Ntotal_plusminus=sum(N_plusminus)
       Ntotal_minusminus=sum(N_minusminus)
 
-      ! initialize the output arrays, actrally not necessary
+      ! initialize the output arrays
       Indof2ndPhonon_plusplus=0
       Indof3rdPhonon_plusplus=0
       Indof4thPhonon_plusplus=0
@@ -3646,7 +3651,7 @@ module processes
       allocate(rate_scatt_minusminus_reduce(Nbands*Nlist))
       !  end allocate reduced output arrays
 
-      ! initialize the output arrays, actrally not necessary
+      ! initialize the output arrays
       Indof2ndPhonon_plusplus=0
       Indof3rdPhonon_plusplus=0
       Indof4thPhonon_plusplus=0
@@ -5211,7 +5216,7 @@ module processes
 
       integer(kind=4) :: chunkstart, chunkend, chunkid ! for parallel computing
 
-      ! initialize the output arrays, actrally not necessary
+      ! initialize the output arrays
       rate_scatt_4ph=0.d00
       rate_scatt_plusplus=0.d00
       rate_scatt_plusminus=0.d00
