@@ -10,7 +10,7 @@
 git clone https://github.com/FourPhonon/FourPhonon.git
 ```
 
-The compilation of `FourPhonon` is the same as the previous `ShengBTE`: after setting proper paths in `arch.make`, one can then run `make` in the `Src` subdirectory. An executable `ShengBTE` will appear in the root directory of this distribution.
+The compilation of `FourPhonon` is the same as the previous `ShengBTE`: after setting proper paths in `arch.make`, one can then run `make cpu` (or simply `make`) in the `Src` subdirectory to build the CPU executable `ShengBTE_cpu`, or `make gpu` to build the GPU executable `ShengBTE_gpu`. Both appear in the root directory of this distribution. See the [manual](https://github.com/FourPhonon/FourPhonon/blob/main/Manual.md) for compiler settings.
 
 ## Authors, features and references for `FourPhonon`:
 
