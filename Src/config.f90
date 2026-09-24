@@ -213,8 +213,22 @@ contains
       call MPI_FINALIZE(ierr)
     end if
 
+    ! The sampled phase space only estimates N_plus/N_minus, which size the
+    ! scattering matrices used by the iterative solver, so it must be off too.
+    if(((convergence.eq. .true.) .and. (num_sample_process_3ph_phase_space.gt.0)) ) then
+      if(myid.eq.0)write(error_unit,*) "Error: convergence=.true. but num_sample_process_3ph_phase_space.gt.0. "
+      call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+      call MPI_FINALIZE(ierr)
+    end if
+
     if(((four_phonon_iteration.eq. .true.) .and. (num_sample_process_4ph.gt.0)) ) then
       if(myid.eq.0)write(error_unit,*) "Error: four_phonon_iteration=.true. but num_sample_process_4ph.gt.0. "
+      call MPI_BARRIER(MPI_COMM_WORLD,ierr)
+      call MPI_FINALIZE(ierr)
+    end if
+
+    if(((four_phonon_iteration.eq. .true.) .and. (num_sample_process_4ph_phase_space.gt.0)) ) then
+      if(myid.eq.0)write(error_unit,*) "Error: four_phonon_iteration=.true. but num_sample_process_4ph_phase_space.gt.0. "
       call MPI_BARRIER(MPI_COMM_WORLD,ierr)
       call MPI_FINALIZE(ierr)
     end if

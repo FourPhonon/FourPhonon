@@ -46,7 +46,7 @@ This example uses 4 MPI processes with 8 OpenMP threads each (total 32 cores).
 
 **Important**: `OMP_STACKSIZE=1G` is required on some clusters to allocate sufficient stack memory for OpenMP threads.
 
-**Note**: Earlier versions (1.0-1.1) used MPI-only parallelism. Version 1.2 migrated to OpenMP support for the iterative solver to handle large memory requirements.
+**Note**: Earlier versions (1.0-1.1) used MPI-only parallelism. Version 1.2 added OpenMP threading to the iterative solver to handle large memory requirements, and version 1.3 introduced the current hybrid MPI+OpenMP scheme.
 
 ## GPU acceleration
 
