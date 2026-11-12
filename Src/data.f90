@@ -922,7 +922,9 @@ contains
     g=0.
     do i=1,niso
        if(isotope_element(i).eq.element) then
-          g=g+isotope_abundance(i)*(1.-isotope_mass(i)/m)**2
+          ! (m-mass)/m, not 1.-mass/m: exactly 0 for a single isotope even when the compiler
+          ! replaces mass/m by mass*(1/m) (ifx -O2), which left g ~ 1e-33.
+          g=g+isotope_abundance(i)*((m-isotope_mass(i))/m)**2
        end if
     end do
     g=g/100.
